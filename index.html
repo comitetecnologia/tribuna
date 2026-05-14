@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Vaad Hajinuj · Dashboard Ejecutivo</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0F0F0F;color:#F0EDE8;font-family:'DM Sans',sans-serif;min-height:100vh}
+:root{
+  --bg:#0F0F0F;--surface:#171717;--border:#242424;
+  --accent:#C8A96E;--accent-dim:#8B7340;
+  --text:#F0EDE8;--muted:#6B6660;--sub:#9E9890;
+}
+button{font-family:inherit;cursor:pointer}
+
+/* HEADER */
+#header{background:var(--surface);border-bottom:1px solid var(--border);padding:0 28px;position:sticky;top:0;z-index:50}
+#header-top{display:flex;align-items:center;justify-content:space-between;height:56px}
+#logo{background:var(--accent);color:#000;font-weight:800;font-size:13px;width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:6px;flex-shrink:0}
+#brand{margin-left:14px}
+#brand-title{font-size:13px;font-weight:600;letter-spacing:.3px}
+#brand-sub{font-size:10px;color:var(--muted);letter-spacing:1px}
+#header-right{display:flex;align-items:center;gap:8px}
+.cycle-btn{padding:4px 12px;border-radius:4px;border:none;font-size:11px;font-weight:600;cursor:pointer;transition:all .15s}
+.cycle-btn.active{background:var(--accent);color:#000}
+.cycle-btn:not(.active){background:transparent;color:var(--muted)}
+#cycle-wrap{display:flex;gap:4px;background:var(--bg);border-radius:6px;padding:3px;border:1px solid var(--border)}
+#upload-btn{display:flex;align-items:center;gap:6px;background:transparent;border:1px solid var(--border);color:var(--sub);font-size:11px;padding:6px 14px;border-radius:6px}
+#file-label{font-size:10px;color:var(--muted);max-width:180px;text-align:right;line-height:1.4}
+#tabs{display:flex}
+.tab-btn{padding:12px 20px;background:none;border:none;font-size:12px;font-family:inherit;color:var(--muted);border-bottom:2px solid transparent;transition:all .15s}
+.tab-btn.active{font-weight:600;color:var(--accent);border-bottom-color:var(--accent)}
+
+/* CONTENT */
+#content{padding:28px;max-width:1400px;margin:0 auto}
+#cycle-badge{margin-bottom:20px;display:flex;align-items:center;gap:10px;font-size:11px;color:var(--muted)}
+#cycle-badge span.badge{font-weight:700;color:var(--accent);background:rgba(200,169,110,.1);padding:3px 10px;border-radius:4px;border:1px solid var(--accent-dim)}
+
+/* SECTION TITLE */
+.sec-title{font-size:9px;letter-spacing:3px;color:var(--muted);text-transform:uppercase;margin-bottom:16px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+
+/* KPI GRID */
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;margin-bottom:28px}
+.kpi-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:18px 20px}
+.kpi-label{font-size:10px;letter-spacing:2px;color:var(--muted);text-transform:uppercase;margin-bottom:8px}
+.kpi-value{font-size:24px;font-family:'DM Mono',monospace;font-weight:500}
+.kpi-sub{font-size:11px;color:var(--sub);margin-top:4px}
+
+/* PANEL */
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:20px}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px}
+.four-col{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+.three-col{display:grid;grid-template-columns:1fr 1fr 2fr;gap:16px}
+
+/* BAR H */
+.barh{margin-bottom:10px}
+.barh-row{display:flex;justify-content:space-between;margin-bottom:4px;font-size:12px}
+.barh-row span:first-child{color:var(--sub)}
+.barh-row span:last-child{font-family:'DM Mono',monospace;color:var(--text)}
+.barh-track{height:4px;background:var(--border);border-radius:2px}
+.barh-fill{height:4px;border-radius:2px;transition:width .5s}
+
+/* TABLE */
+.tbl{width:100%;border-collapse:collapse;font-size:12px}
+.tbl th{padding:10px 14px;text-align:left;font-size:9px;letter-spacing:1.5px;color:var(--muted);text-transform:uppercase;white-space:nowrap;border-bottom:1px solid var(--border)}
+.tbl td{padding:12px 14px;border-bottom:1px solid var(--border)}
+.tbl tr:hover td{background:#1E1E1E}
+.tbl tr.sel td{background:#1E1E1E}
+.mono{font-family:'DM Mono',monospace}
+
+/* MODAL */
+#modal{position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:100;display:none;align-items:center;justify-content:center}
+#modal.open{display:flex}
+#modal-box{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:40px;width:520px;max-width:90vw}
+#drop-zone{border:2px dashed var(--border);border-radius:8px;padding:32px;text-align:center;margin-bottom:16px;transition:all .2s}
+#drop-zone.drag{border-color:var(--accent);background:rgba(200,169,110,.05)}
+.ext-tag{font-size:10px;padding:3px 8px;background:var(--border);border-radius:4px;color:var(--muted)}
+#status-box{padding:10px 14px;border-radius:6px;font-size:12px;margin-top:12px;display:none}
+
+/* FOOTER */
+#footer{border-top:1px solid var(--border);padding:12px 28px;display:flex;justify-content:space-between;font-size:10px;color:var(--muted)}
+
+/* Detail panel */
+.school-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div id="header">
+  <div id="header-top">
+    <div style="display:flex;align-items:center">
+      <div id="logo">VH</div>
+      <div id="brand">
+        <div id="brand-title">Sistema Inteligente Vaad Hajinuj</div>
+        <div id="brand-sub">DASHBOARD EJECUTIVO · RED DE COLEGIOS</div>
+      </div>
+    </div>
+    <div id="header-right">
+      <div id="cycle-wrap">
+        <button class="cycle-btn active" data-ciclo="24-25">24-25</button>
+        <button class="cycle-btn" data-ciclo="25-26">25-26</button>
+      </div>
+      <button id="upload-btn">↑ Actualizar BBDD</button>
+      <div id="file-label"><span id="data-status" style="display:block;color:var(--muted)">● Demo data</span><span id="file-name">Datos de demostración</span></div>
+    </div>
+  </div>
+  <div id="tabs">
+    <button class="tab-btn active" data-tab="resumen">Resumen</button>
+    <button class="tab-btn" data-tab="escuelas">Escuelas</button>
+    <button class="tab-btn" data-tab="becas">Becas y subsidios</button>
+  </div>
+</div>
+
+<!-- CONTENT -->
+<div id="content">
+  <div id="cycle-badge">
+    Mostrando datos del ciclo escolar
+    <span class="badge" id="badge-ciclo">24-25</span>
+    <span>· Los alumnos e ingresos no son acumulables entre ciclos</span>
+  </div>
+  <div id="tab-resumen"></div>
+  <div id="tab-escuelas" style="display:none"></div>
+  <div id="tab-becas" style="display:none"></div>
+</div>
+
+<div id="footer">
+  <span>SISTEMA INTELIGENTE VAAD HAJINUJ · DASHBOARD V2</span>
+  <span id="footer-info"></span>
+</div>
+
+<!-- UPLOAD MODAL -->
+<div id="modal">
+  <div id="modal-box">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:28px">
+      <div>
+        <div style="font-size:16px;font-weight:600;color:var(--text)">Actualizar base de datos</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px">Carga el archivo Excel con la BBDD de Vaad Hajinuj</div>
+      </div>
+      <button onclick="closeModal()" style="background:none;border:none;color:var(--muted);font-size:18px">✕</button>
+    </div>
+    <div id="drop-zone">
+      <div style="font-size:32px;margin-bottom:12px">📊</div>
+      <div style="font-size:13px;color:var(--text);margin-bottom:6px">Arrastra el archivo aquí</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:16px">o selecciónalo desde tu computadora</div>
+      <label style="background:var(--accent);color:#000;font-size:12px;font-weight:600;padding:8px 20px;border-radius:6px;cursor:pointer">
+        Seleccionar archivo
+        <input type="file" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleFile(this.files[0])"/>
+      </label>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:16px">
+      <span class="ext-tag">.xlsx</span><span class="ext-tag">.xls</span><span class="ext-tag">.csv</span>
+    </div>
+    <div id="status-box"></div>
+    <div style="margin-top:20px;font-size:10px;color:var(--muted);line-height:1.6">
+      El archivo se procesa localmente en tu navegador. No se sube a ningún servidor.
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script>
+// ── DATA ──────────────────────────────────────────────────────────────────────
+const SCHOOL_COLORS = {
+  "YAVNE":"#E05555","OLAMI":"#E07A30","EMUNA":"#D44040",
+  "OR HAJAIM":"#4CAF6E","ATID":"#5B8DEF"
+};
+
+const DEMO = {
+  ciclos:["24-25","25-26"],
+  escuelas:[
+    {nombre:"YAVNE",alumnos:210,ciclo:"25-26",ingTeorico:44300950,ingReal:31555692,subsidio:11540978,descFinanciero:3200000,becados:97,pctBecados:0.462,abreijim:12,colaboradores:8,
+     conceptos:[{n:"Colegiatura",m:24000000,t:false},{n:"Inscripción",m:4200000,t:false},{n:"Canasta",m:1800000,t:false},{n:"Camión",m:900000,t:false},{n:"Libros",m:655692,t:false},{n:"Uniformes",m:480000,t:true},{n:"Útiles",m:320000,t:true},{n:"Excursiones",m:200000,t:true}]},
+    {nombre:"OLAMI",alumnos:1147,ciclo:"25-26",ingTeorico:236002300,ingReal:201623428,subsidio:21623887,descFinanciero:8400000,becados:487,pctBecados:0.425,abreijim:89,colaboradores:34,
+     conceptos:[{n:"Colegiatura",m:148000000,t:false},{n:"Inscripción",m:28000000,t:false},{n:"Canasta",m:12000000,t:false},{n:"Camión",m:8000000,t:false},{n:"Libros",m:5623428,t:false},{n:"Uniformes",m:3200000,t:true},{n:"Útiles",m:2100000,t:true},{n:"Excursiones",m:700000,t:true}]},
+    {nombre:"EMUNA",alumnos:592,ciclo:"25-26",ingTeorico:84418250,ingReal:73013694,subsidio:16613658,descFinanciero:4200000,becados:342,pctBecados:0.578,abreijim:41,colaboradores:19,
+     conceptos:[{n:"Colegiatura",m:52000000,t:false},{n:"Inscripción",m:9800000,t:false},{n:"Canasta",m:5200000,t:false},{n:"Camión",m:3800000,t:false},{n:"Libros",m:2213694,t:false},{n:"Uniformes",m:1400000,t:true},{n:"Útiles",m:980000,t:true},{n:"Excursiones",m:420000,t:true}]},
+    {nombre:"OR HAJAIM",alumnos:505,ciclo:"25-26",ingTeorico:100095000,ingReal:91940237,subsidio:7045716,descFinanciero:2100000,becados:100,pctBecados:0.198,abreijim:28,colaboradores:15,
+     conceptos:[{n:"Colegiatura",m:68000000,t:false},{n:"Inscripción",m:10800000,t:false},{n:"Canasta",m:6200000,t:false},{n:"Camión",m:4500000,t:false},{n:"Libros",m:2440237,t:false},{n:"Uniformes",m:1200000,t:true},{n:"Útiles",m:800000,t:true},{n:"Excursiones",m:300000,t:true}]},
+    {nombre:"ATID",alumnos:624,ciclo:"25-26",ingTeorico:153134954,ingReal:146698721,subsidio:5831645,descFinanciero:1800000,becados:68,pctBecados:0.109,abreijim:22,colaboradores:18,
+     conceptos:[{n:"Colegiatura",m:108000000,t:false},{n:"Inscripción",m:18000000,t:false},{n:"Canasta",m:9200000,t:false},{n:"Camión",m:7000000,t:false},{n:"Libros",m:4498721,t:false},{n:"Uniformes",m:2100000,t:true},{n:"Útiles",m:1400000,t:true},{n:"Excursiones",m:500000,t:true}]},
+    // 24-25 (datos ficticios ligeramente menores)
+    {nombre:"YAVNE",alumnos:198,ciclo:"24-25",ingTeorico:40100000,ingReal:28900000,subsidio:10200000,descFinanciero:2900000,becados:89,pctBecados:0.449,abreijim:10,colaboradores:7,conceptos:[]},
+    {nombre:"OLAMI",alumnos:1090,ciclo:"24-25",ingTeorico:218000000,ingReal:188000000,subsidio:19000000,descFinanciero:7800000,becados:450,pctBecados:0.413,abreijim:80,colaboradores:30,conceptos:[]},
+    {nombre:"EMUNA",alumnos:560,ciclo:"24-25",ingTeorico:79000000,ingReal:68000000,subsidio:14800000,descFinanciero:3900000,becados:315,pctBecados:0.563,abreijim:38,colaboradores:17,conceptos:[]},
+    {nombre:"OR HAJAIM",alumnos:480,ciclo:"24-25",ingTeorico:93000000,ingReal:85000000,subsidio:6500000,descFinanciero:2000000,becados:92,pctBecados:0.192,abreijim:25,colaboradores:13,conceptos:[]},
+    {nombre:"ATID",alumnos:598,ciclo:"24-25",ingTeorico:143000000,ingReal:138000000,subsidio:5200000,descFinanciero:1600000,becados:61,pctBecados:0.102,abreijim:20,colaboradores:16,conceptos:[]},
+  ],
+  becasFuentes:[
+    {fuente:"COLEGIO",monto:49000000,alumnos:720,pctMonto:0.786,pctAlumnos:0.601},
+    {fuente:"HERMANOS",monto:5000000,alumnos:189,pctMonto:0.080,pctAlumnos:0.158},
+    {fuente:"MAGUEN DAVID",monto:5000000,alumnos:102,pctMonto:0.080,pctAlumnos:0.085},
+    {fuente:"SEFARADI",monto:3000000,alumnos:68,pctMonto:0.048,pctAlumnos:0.057},
+    {fuente:"TEMPORAL",monto:792000,alumnos:30,pctMonto:0.013,pctAlumnos:0.025},
+    {fuente:"BET EL",monto:154000,alumnos:8,pctMonto:0.002,pctAlumnos:0.007},
+  ],
+  sectores:[
+    {nombre:"KÍNDER",alumnos:605,ingReal:65000000,subsidio:8000000},
+    {nombre:"PRIMARIA",alumnos:1162,ingReal:209000000,subsidio:24000000},
+    {nombre:"SECUNDARIA",alumnos:719,ingReal:155000000,subsidio:16000000},
+    {nombre:"PREPARATORIA",alumnos:592,ingReal:117000000,subsidio:15000000},
+  ],
+  ltv:{ltvNominal:1275000,ltvPV:728000,costoAnualPromedio:85000,tasaDescuento:0.08,
+    desglose:[{nivel:"Kínder (3 años)",costo:185000},{nivel:"Primaria (6 años)",costo:510000},{nivel:"Secundaria (3 años)",costo:285000},{nivel:"Preparatoria (3 años)",costo:295000}]
+  }
+};
+
+// ── HELPERS ───────────────────────────────────────────────────────────────────
+const fmt = n => {
+  if(n==null)return"—";
+  if(Math.abs(n)>=1e6)return`$${(n/1e6).toFixed(1)}M`;
+  if(Math.abs(n)>=1e3)return`$${(n/1e3).toFixed(0)}K`;
+  return`$${n.toLocaleString()}`;
+};
+const pct = n => n==null?"—":`${(n*100).toFixed(1)}%`;
+const num = n => n==null?"—":n.toLocaleString();
+
+function kpi(label,value,sub,color){
+  return`<div class="kpi-card">
+    <div class="kpi-label">${label}</div>
+    <div class="kpi-value" style="color:${color||'var(--text)'}">${value}</div>
+    ${sub?`<div class="kpi-sub">${sub}</div>`:""}
+  </div>`;
+}
+
+function barh(label,value,max,color,right){
+  const w=Math.min(100,max>0?(value/max)*100:0);
+  return`<div class="barh">
+    <div class="barh-row"><span>${label}</span><span>${right}</span></div>
+    <div class="barh-track"><div class="barh-fill" style="width:${w}%;background:${color}"></div></div>
+  </div>`;
+}
+
+// ── STATE ─────────────────────────────────────────────────────────────────────
+let state = { ciclo:"24-25", tab:"resumen", data:DEMO, sel:null };
+
+// ── RENDER ────────────────────────────────────────────────────────────────────
+function render(){
+  document.getElementById("badge-ciclo").textContent=state.ciclo;
+  // tabs visibility
+  ["resumen","escuelas","becas"].forEach(t=>{
+    document.getElementById(`tab-${t}`).style.display=state.tab===t?"block":"none";
+  });
+  document.querySelectorAll(".tab-btn").forEach(b=>b.classList.toggle("active",b.dataset.tab===state.tab));
+  document.querySelectorAll(".cycle-btn").forEach(b=>b.classList.toggle("active",b.dataset.ciclo===state.ciclo));
+
+  if(state.tab==="resumen") renderResumen();
+  if(state.tab==="escuelas") renderEscuelas();
+  if(state.tab==="becas") renderBecas();
+
+  const escuelas=state.data.escuelas.filter(e=>e.ciclo===state.ciclo);
+  const tot=escuelas.reduce((s,e)=>s+e.alumnos,0);
+  document.getElementById("footer-info").textContent=`BASE: ${num(tot)} ALUMNOS · ${escuelas.length} ESCUELAS · RED COMPLETA · CICLO ${state.ciclo}`;
+}
+
+function renderResumen(){
+  const escuelas=state.data.escuelas.filter(e=>e.ciclo===state.ciclo);
+  const totA=escuelas.reduce((s,e)=>s+e.alumnos,0);
+  const totT=escuelas.reduce((s,e)=>s+e.ingTeorico,0);
+  const totR=escuelas.reduce((s,e)=>s+e.ingReal,0);
+  const totS=escuelas.reduce((s,e)=>s+e.subsidio,0);
+  const totD=escuelas.reduce((s,e)=>s+e.descFinanciero,0);
+  const totB=escuelas.reduce((s,e)=>s+e.becados,0);
+  const capPct=totT>0?totR/totT:0;
+  const pctB=totA>0?totB/totA:0;
+  const pctSvR=totR>0?totS/totR:0;
+  const brecha=totT-totR;
+
+  // Conceptos
+  const acad={},trian={};
+  escuelas.forEach(e=>(e.conceptos||[]).forEach(c=>{
+    const d=c.t?trian:acad;
+    d[c.n]=(d[c.n]||0)+c.m;
+  }));
+  const maxAcad=Math.max(...Object.values(acad),1);
+  const maxTrian=Math.max(...Object.values(trian),1);
+
+  const ltv=state.data.ltv;
+  const secColors=["#C8A96E","#5B8DEF","#4CAF6E","#E07A30"];
+
+  document.getElementById("tab-resumen").innerHTML=`
+    <div class="kpi-grid">
+      ${kpi("Total alumnos",num(totA),`Ciclo ${state.ciclo}`)}
+      ${kpi("Ingreso real",fmt(totR),`${pct(capPct)} de captación`)}
+      ${kpi("Ingreso teórico",fmt(totT),"Colegiaturas + conceptos")}
+      ${kpi("Brecha no captada",fmt(brecha),"Gap financiero","#E05555")}
+      ${kpi("Subsidio becas",fmt(totS),"Solo becas, excl. desc. financiero","#C8A96E")}
+      ${kpi("Desc. financiero",fmt(totD),"No es ingreso al colegio")}
+      ${kpi("% Becados",pct(pctB),`${num(totB)} alumnos`)}
+      ${kpi("% Beca vs ingreso",pct(pctSvR),"Subsidio / ingreso real","#C8A96E")}
+    </div>
+
+    <div class="two-col">
+      <div class="panel">
+        <div class="sec-title">Distribución — ingresos académicos</div>
+        ${Object.entries(acad).sort((a,b)=>b[1]-a[1]).map(([k,v])=>barh(k,v,maxAcad,"#C8A96E",fmt(v))).join("")}
+      </div>
+      <div class="panel">
+        <div class="sec-title">Conceptos triangulados (no ingreso del colegio)</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:12px">El colegio solo cobra y transfiere al proveedor</div>
+        ${Object.entries(trian).sort((a,b)=>b[1]-a[1]).map(([k,v])=>barh(k,v,maxTrian,"#5B8DEF",fmt(v))).join("")}
+      </div>
+    </div>
+
+    <div class="panel" style="margin-bottom:20px">
+      <div class="sec-title">Distribución por sector educativo</div>
+      <div class="four-col">
+        ${state.data.sectores.map((s,i)=>`
+          <div style="border-left:3px solid ${secColors[i]};padding-left:14px">
+            <div style="font-size:11px;font-weight:600;color:${secColors[i]};letter-spacing:1px;margin-bottom:10px">${s.nombre}</div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:11px;color:var(--muted)">Alumnos</span><span style="font-size:12px;font-family:'DM Mono',monospace">${num(s.alumnos)}</span></div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:11px;color:var(--muted)">Ingreso real</span><span style="font-size:12px;font-family:'DM Mono',monospace">${fmt(s.ingReal)}</span></div>
+            <div style="display:flex;justify-content:space-between"><span style="font-size:11px;color:var(--muted)">Subsidio becas</span><span style="font-size:12px;color:#E05555;font-family:'DM Mono',monospace">${fmt(s.subsidio)}</span></div>
+          </div>`).join("")}
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="sec-title">LTV — Costo total por familia (Kínder 1 → Prepa 3)</div>
+      <div class="three-col">
+        <div>
+          <div style="font-size:10px;color:var(--muted);margin-bottom:6px">LTV Nominal</div>
+          <div style="font-size:22px;font-family:'DM Mono',monospace;color:#C8A96E">${fmt(ltv.ltvNominal)}</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:4px">15 años en pesos corrientes</div>
+        </div>
+        <div>
+          <div style="font-size:10px;color:var(--muted);margin-bottom:6px">LTV Valor Presente</div>
+          <div style="font-size:22px;font-family:'DM Mono',monospace">${fmt(ltv.ltvPV)}</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:4px">Tasa de descuento ${pct(ltv.tasaDescuento)}</div>
+        </div>
+        <div>
+          ${ltv.desglose.map(d=>`
+            <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+              <span style="font-size:11px;color:var(--muted)">${d.nivel}</span>
+              <span style="font-size:12px;font-family:'DM Mono',monospace">${fmt(d.costo)}</span>
+            </div>`).join("")}
+        </div>
+      </div>
+    </div>`;
+}
+
+function renderEscuelas(){
+  const escuelas=state.data.escuelas.filter(e=>e.ciclo===state.ciclo);
+  const sel=state.sel;
+  const escObj=sel?escuelas.find(e=>e.nombre===sel):null;
+
+  const rows=escuelas.map(e=>{
+    const cap=e.ingTeorico>0?e.ingReal/e.ingTeorico:0;
+    const pctSub=e.ingReal>0?e.subsidio/e.ingReal:0;
+    const c=SCHOOL_COLORS[e.nombre]||"#C8A96E";
+    const capColor=cap<0.80?"#E05555":cap<0.90?"#C8A96E":"#4CAF6E";
+    return`<tr class="${sel===e.nombre?'sel':''}" onclick="selectSchool('${e.nombre}')">
+      <td><div style="display:flex;align-items:center;gap:8px"><div class="school-dot" style="background:${c}"></div><span style="font-weight:500">${e.nombre}</span></div></td>
+      <td class="mono">${num(e.alumnos)}</td>
+      <td class="mono" style="color:var(--sub)">${fmt(e.ingTeorico)}</td>
+      <td class="mono">${fmt(e.ingReal)}</td>
+      <td class="mono" style="color:${capColor}">${pct(cap)}</td>
+      <td class="mono" style="color:#E05555">${fmt(e.subsidio)}</td>
+      <td class="mono" style="color:var(--sub)">${pct(pctSub)}</td>
+      <td class="mono">${num(e.becados)}</td>
+      <td class="mono" style="color:var(--sub)">${pct(e.pctBecados)}</td>
+      <td class="mono">${num(e.abreijim)}</td>
+      <td class="mono">${num(e.colaboradores)}</td>
+      <td class="mono" style="color:var(--sub)">${fmt(e.descFinanciero)}</td>
+    </tr>`;
+  }).join("");
+
+  const detalle=escObj?`
+    <div class="panel" style="border-color:${SCHOOL_COLORS[escObj.nombre]||'#C8A96E'};margin-top:20px">
+      <div style="font-size:13px;font-weight:600;color:${SCHOOL_COLORS[escObj.nombre]||'#C8A96E'};margin-bottom:16px">${escObj.nombre} — Desglose de ingresos por concepto</div>
+      <div class="two-col">
+        <div>
+          <div class="sec-title">Ingresos académicos</div>
+          ${(escObj.conceptos||[]).filter(c=>!c.t).map(c=>`
+            <div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border)">
+              <span style="font-size:12px;color:var(--sub)">${c.n}</span>
+              <span style="font-size:12px;font-family:'DM Mono',monospace">${fmt(c.m)}</span>
+            </div>`).join("")}
+        </div>
+        <div>
+          <div class="sec-title">Conceptos triangulados (proveedor externo)</div>
+          ${(escObj.conceptos||[]).filter(c=>c.t).map(c=>`
+            <div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border)">
+              <span style="font-size:12px;color:var(--muted)">${c.n}</span>
+              <span style="font-size:12px;font-family:'DM Mono',monospace;color:var(--sub)">${fmt(c.m)}</span>
+            </div>`).join("")}
+        </div>
+      </div>
+    </div>`
+  :`<div style="font-size:11px;color:var(--muted);text-align:center;padding:16px">Selecciona una escuela en la tabla para ver su desglose por concepto</div>`;
+
+  document.getElementById("tab-escuelas").innerHTML=`
+    <div class="panel" style="margin-bottom:20px;overflow:auto">
+      <table class="tbl">
+        <thead><tr>
+          ${["Escuela","Alumnos","Ing. Teórico","Ing. Real","% Captación","Subsidio Becas","% Subsidio","Becados","% Becados","Abreijim","Colaboradores","Desc. Fin."].map(h=>`<th>${h}</th>`).join("")}
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+    ${detalle}`;
+}
+
+function renderBecas(){
+  const fuentes=state.data.becasFuentes||[];
+  const escuelas=state.data.escuelas.filter(e=>e.ciclo===state.ciclo);
+  const maxM=Math.max(...fuentes.map(f=>f.monto),1);
+  const maxA=Math.max(...fuentes.map(f=>f.alumnos),1);
+  const maxES=Math.max(...escuelas.map(e=>e.subsidio),1);
+  const maxEB=Math.max(...escuelas.map(e=>e.becados),1);
+  const fColors=["#C8A96E","#5B8DEF","#9B6EE0","#4CAF6E","#E07A30","#4CAF6E"];
+
+  const fRows=fuentes.map((f,i)=>`
+    <div style="margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+        <span style="font-size:12px;color:var(--sub)">${f.fuente}</span>
+        <span style="font-size:11px;font-family:'DM Mono',monospace;color:var(--muted)">${fmt(f.monto)} · ${num(f.alumnos)} · ${pct(f.pctMonto)}</span>
+      </div>
+      <div class="barh-track" style="margin-bottom:3px"><div class="barh-fill" style="width:${(f.monto/maxM)*100}%;background:${fColors[i%fColors.length]}"></div></div>
+      <div class="barh-track" style="opacity:.5"><div class="barh-fill" style="width:${(f.alumnos/maxA)*100}%;background:${fColors[i%fColors.length]};opacity:.6"></div></div>
+    </div>`).join("");
+
+  const eRows=escuelas.sort((a,b)=>b.subsidio-a.subsidio).map(e=>{
+    const c=SCHOOL_COLORS[e.nombre]||"#C8A96E";
+    return`<div style="margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;margin-bottom:3px">
+        <span style="font-size:12px;color:var(--sub)">${e.nombre}</span>
+        <span style="font-size:11px;font-family:'DM Mono',monospace;color:var(--muted)">${fmt(e.subsidio)} · ${num(e.becados)} alumnos · ${pct(e.pctBecados)}</span>
+      </div>
+      <div class="barh-track" style="margin-bottom:3px"><div class="barh-fill" style="width:${(e.subsidio/maxES)*100}%;background:${c}"></div></div>
+      <div class="barh-track" style="opacity:.5"><div class="barh-fill" style="width:${(e.becados/maxEB)*100}%;background:${c};opacity:.6"></div></div>
+    </div>`;}).join("");
+
+  const tblRows=fuentes.map(f=>`
+    <tr>
+      <td style="color:var(--text)">${f.fuente}</td>
+      <td class="mono" style="color:#C8A96E">${fmt(f.monto)}</td>
+      <td class="mono" style="color:var(--sub)">${pct(f.pctMonto)}</td>
+      <td class="mono">${num(f.alumnos)}</td>
+      <td class="mono" style="color:var(--sub)">${pct(f.pctAlumnos)}</td>
+    </tr>`).join("");
+
+  document.getElementById("tab-becas").innerHTML=`
+    <div class="two-col">
+      <div class="panel">
+        <div class="sec-title">Subsidio por fuente de financiamiento</div>
+        ${fRows}
+        <div style="font-size:9px;color:var(--muted);margin-top:8px">Barra superior = monto · Barra inferior = alumnos</div>
+      </div>
+      <div class="panel">
+        <div class="sec-title">Subsidio becas por escuela</div>
+        ${eRows}
+        <div style="font-size:9px;color:var(--muted);margin-top:8px">Barra superior = monto beca · Barra inferior = número de alumnos becados</div>
+      </div>
+    </div>
+    <div class="panel" style="margin-top:20px;overflow:auto">
+      <table class="tbl">
+        <thead><tr>
+          ${["Fuente","Monto beca","% del total $","Alumnos","% del total alumnos"].map(h=>`<th>${h}</th>`).join("")}
+        </tr></thead>
+        <tbody>${tblRows}</tbody>
+      </table>
+    </div>`;
+}
+
+// ── EVENTS ────────────────────────────────────────────────────────────────────
+function selectSchool(name){
+  state.sel=state.sel===name?null:name;
+  renderEscuelas();
+}
+
+document.querySelectorAll(".tab-btn").forEach(b=>b.addEventListener("click",()=>{
+  state.tab=b.dataset.tab; state.sel=null; render();
+}));
+document.querySelectorAll(".cycle-btn").forEach(b=>b.addEventListener("click",()=>{
+  state.ciclo=b.dataset.ciclo; state.sel=null; render();
+}));
+document.getElementById("upload-btn").addEventListener("click",()=>{
+  document.getElementById("modal").classList.add("open");
+});
+
+// Drag and drop
+const dz=document.getElementById("drop-zone");
+dz.addEventListener("dragover",e=>{e.preventDefault();dz.classList.add("drag")});
+dz.addEventListener("dragleave",()=>dz.classList.remove("drag"));
+dz.addEventListener("drop",e=>{e.preventDefault();dz.classList.remove("drag");handleFile(e.dataTransfer.files[0])});
+
+function closeModal(){document.getElementById("modal").classList.remove("open")}
+document.getElementById("modal").addEventListener("click",e=>{if(e.target===e.currentTarget)closeModal()});
+
+function handleFile(file){
+  if(!file)return;
+  const sb=document.getElementById("status-box");
+  sb.style.display="block";
+  sb.style.background="rgba(200,169,110,.1)";
+  sb.style.color="#C8A96E";
+  sb.style.border="1px solid #8B7340";
+  sb.textContent=`Procesando: ${file.name}...`;
+
+  const reader=new FileReader();
+  reader.onload=e=>{
+    try{
+      const data=new Uint8Array(e.target.result);
+      const wb=XLSX.read(data,{type:"array"});
+      sb.style.background="rgba(76,175,110,.1)";
+      sb.style.color="#4CAF6E";
+      sb.style.border="1px solid #4CAF6E";
+      sb.textContent=`✓ ${file.name} cargado. ${wb.SheetNames.length} hojas: ${wb.SheetNames.join(", ")}`;
+      document.getElementById("file-name").textContent=file.name;
+      document.getElementById("data-status").textContent="● BBDD cargada";
+      document.getElementById("data-status").style.color="#4CAF6E";
+      setTimeout(closeModal,2000);
+    }catch(err){
+      sb.style.background="rgba(224,85,85,.1)";
+      sb.style.color="#E05555";
+      sb.style.border="1px solid #E05555";
+      sb.textContent=`Error: ${err.message}`;
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+// ── INIT ──────────────────────────────────────────────────────────────────────
+render();
+</script>
+</body>
+</html>
