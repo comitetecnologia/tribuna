@@ -1,1687 +1,813 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Tribuna Israelita — Sistema de Monitoreo</title>
-<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Source+Sans+3:wght@300;400;500;600&family=Source+Code+Pro:wght@400;500&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
-<style>
-*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+import { useState, useCallback, useMemo } from "react";
+import * as XLSX from "xlsx";
 
-:root {
-  --navy: #0F2044;
-  --navy2: #1A3160;
-  --navy3: #243D78;
-  --blue: #2756A8;
-  --blue2: #3A6BC4;
-  --gold: #B8922A;
-  --gold2: #D4A843;
-  --gold3: #F0C96A;
-  --goldl: rgba(184,146,42,0.12);
-  --goldl2: rgba(184,146,42,0.06);
-  --red: #C0392B;
-  --red2: rgba(192,57,43,0.08);
-  --orange: #D4651A;
-  --orange2: rgba(212,101,26,0.08);
-  --green: #1A7A4A;
-  --green2: rgba(26,122,74,0.08);
-  --bg: #F4F2ED;
-  --bg2: #FDFCF9;
-  --bg3: #EDE9E0;
-  --border: rgba(15,32,68,0.10);
-  --border2: rgba(15,32,68,0.18);
-  --border3: rgba(184,146,42,0.30);
-  --text: #1A1A2E;
-  --text2: #2D3A5A;
-  --dim: #5A6680;
-  --muted: #8A94A8;
-  --r: 6px;
-}
+// ─── PALETA ───────────────────────────────────────────────────────────────────
+const COLORS = {
+  bg: "#0F0F0F",
+  surface: "#171717",
+  border: "#242424",
+  accent: "#C8A96E",
+  accentDim: "#8B7340",
+  text: "#F0EDE8",
+  textMuted: "#6B6660",
+  textSub: "#9E9890",
+  YAVNE: "#E05555",
+  OLAMI: "#E07A30",
+  EMUNA: "#C44",
+  OR_HAJAIM: "#4CAF6E",
+  ATID: "#5B8DEF",
+};
 
-body {
-  font-family: 'Source Sans 3', sans-serif;
-  background: var(--bg);
-  color: var(--text);
-  height: 100vh;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
+const SCHOOL_COLORS = {
+  YAVNE: "#E05555",
+  OLAMI: "#E07A30",
+  EMUNA: "#D44040",
+  "OR HAJAIM": "#4CAF6E",
+  "OR_HAJAIM": "#4CAF6E",
+  ATID: "#5B8DEF",
+};
 
-/* Subtle paper texture */
-body::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
-  pointer-events: none;
-  z-index: 9000;
-  opacity: .6;
-}
+const fmt = (n) => {
+  if (!n && n !== 0) return "—";
+  if (Math.abs(n) >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
+  if (Math.abs(n) >= 1_000) return `$${(n / 1_000).toFixed(0)}K`;
+  return `$${n.toLocaleString()}`;
+};
+const pct = (n) => (n == null ? "—" : `${(n * 100).toFixed(1)}%`);
+const num = (n) => (n == null ? "—" : n.toLocaleString());
 
-.shell { display: flex; flex: 1; overflow: hidden; }
+// ─── PARSER BBDD ──────────────────────────────────────────────────────────────
+function parseWorkbook(wb) {
+  const sheets = wb.SheetNames;
+  const raw = {};
+  sheets.forEach((s) => {
+    raw[s] = XLSX.utils.sheet_to_json(wb.Sheets[s], { defval: null });
+  });
 
-/* ══════════════════════════ SIDEBAR ══════════════════════════ */
-.sb {
-  width: 210px;
-  flex-shrink: 0;
-  background: var(--navy);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
+  // Intentamos detectar columnas clave de forma flexible
+  const alumnosSheet = raw[sheets.find((s) => /alumn|student|alumno/i.test(s)) || sheets[0]] || [];
+  const ingresosSheet = raw[sheets.find((s) => /ingres|income|cobro|cargo/i.test(s)) || sheets[1]] || [];
+  const becasSheet = raw[sheets.find((s) => /beca|subsidio|desc/i.test(s)) || sheets[2]] || [];
 
-.sb-logo {
-  padding: 20px 18px 16px;
-  border-bottom: 1px solid rgba(255,255,255,0.08);
-  position: relative;
-}
-.sb-logo::after {
-  content: '';
-  position: absolute;
-  bottom: 0; left: 18px; right: 18px;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, var(--gold2), transparent);
-  opacity: 0.5;
-}
+  // Normalizar escuela
+  const normEscuela = (v) => {
+    if (!v) return "DESCONOCIDA";
+    const u = String(v).toUpperCase().trim();
+    if (u.includes("YAVNE") || u.includes("YAVNEH")) return "YAVNE";
+    if (u.includes("OLAMI")) return "OLAMI";
+    if (u.includes("EMUNA")) return "EMUNA";
+    if (u.includes("OR") && u.includes("HAJAIM")) return "OR HAJAIM";
+    if (u.includes("ATID")) return "ATID";
+    return u;
+  };
 
-.logo-emblem {
-  display: flex;
-  align-items: center;
-  gap: 11px;
-  margin-bottom: 6px;
-}
-.logo-star {
-  width: 34px; height: 34px;
-  position: relative;
-  flex-shrink: 0;
-}
-.logo-star svg { width: 100%; height: 100%; }
-.logo-name {
-  font-family: 'Playfair Display', serif;
-  font-size: 15px;
-  font-weight: 700;
-  color: #fff;
-  letter-spacing: 0.3px;
-  line-height: 1.2;
-}
-.logo-name span {
-  display: block;
-  font-size: 10px;
-  font-weight: 400;
-  color: var(--gold3);
-  font-family: 'Source Code Pro', monospace;
-  letter-spacing: 1.5px;
-  margin-top: 2px;
+  const normCiclo = (v) => {
+    if (!v) return null;
+    const s = String(v).trim();
+    if (s.includes("-") || s.includes("/")) return s;
+    return s;
+  };
+
+  const colFind = (row, ...keys) => {
+    for (const k of keys) {
+      const found = Object.keys(row).find((c) => c.toLowerCase().includes(k.toLowerCase()));
+      if (found) return row[found];
+    }
+    return null;
+  };
+
+  // Procesar alumnos
+  const alumnos = alumnosSheet.map((r) => ({
+    escuela: normEscuela(colFind(r, "escuela", "colegio", "school")),
+    ciclo: normCiclo(colFind(r, "ciclo", "año", "year", "periodo")),
+    grado: colFind(r, "grado", "nivel", "grade"),
+    sector: colFind(r, "sector", "nivel_edu", "nivel educativo"),
+    tipo: colFind(r, "tipo", "tipo_alumno", "categoria"),
+    esAbreij: colFind(r, "abreij", "hermano", "abrej"),
+    esColaborador: colFind(r, "colabor", "empleado", "staff"),
+    total: Number(colFind(r, "total", "alumnos", "count") || 1),
+    _raw: r,
+  }));
+
+  // Procesar ingresos
+  const ingresos = ingresosSheet.map((r) => ({
+    escuela: normEscuela(colFind(r, "escuela", "colegio", "school")),
+    ciclo: normCiclo(colFind(r, "ciclo", "año", "year", "periodo")),
+    concepto: colFind(r, "concepto", "tipo_ingreso", "rubro", "descripcion"),
+    montoTeorico: Number(colFind(r, "teorico", "esperado", "lista") || 0),
+    montoReal: Number(colFind(r, "real", "cobrado", "pagado", "monto") || 0),
+    esTriangulado: colFind(r, "triangul", "proveedor", "externo"),
+    _raw: r,
+  }));
+
+  // Procesar becas
+  const becas = becasSheet.map((r) => ({
+    escuela: normEscuela(colFind(r, "escuela", "colegio", "school")),
+    ciclo: normCiclo(colFind(r, "ciclo", "año", "year", "periodo")),
+    fuente: colFind(r, "fuente", "tipo_beca", "fondo", "origen"),
+    monto: Number(colFind(r, "monto", "subsidio", "beca", "descuento") || 0),
+    alumnos: Number(colFind(r, "alumnos", "beneficiarios", "count") || 0),
+    esDescFinanciero: colFind(r, "financiero", "desc_fin", "descuento_financiero"),
+    _raw: r,
+  }));
+
+  return { alumnos, ingresos, becas, sheetNames: sheets, rawSheets: raw };
 }
 
-.sb-nav { flex: 1; padding: 10px 0; overflow-y: auto; }
-.nav-section {
-  padding: 14px 18px 5px;
-  font-family: 'Source Code Pro', monospace;
-  font-size: 8px;
-  color: rgba(255,255,255,0.25);
-  letter-spacing: 2px;
-  text-transform: uppercase;
-}
-.ni {
-  display: flex; align-items: center; gap: 9px;
-  padding: 9px 18px;
-  font-size: 12.5px;
-  font-weight: 400;
-  color: rgba(255,255,255,0.55);
-  cursor: pointer;
-  transition: all .15s;
-  border-left: 2px solid transparent;
-  letter-spacing: 0.2px;
-  position: relative;
-}
-.ni:hover { color: rgba(255,255,255,0.85); background: rgba(255,255,255,0.04); }
-.ni.active {
-  color: #fff;
-  background: rgba(184,146,42,0.12);
-  border-left-color: var(--gold2);
-}
-.ni .ico { font-size: 12px; width: 16px; text-align: center; opacity: .8; }
-.ni .nb {
-  margin-left: auto;
-  background: var(--red);
-  color: #fff;
-  font-size: 9px;
-  font-weight: 600;
-  padding: 1px 6px;
-  border-radius: 10px;
-  font-family: 'Source Code Pro', monospace;
-}
+// ─── DEMO DATA (cuando no hay archivo) ───────────────────────────────────────
+const DEMO = {
+  ciclos: ["24-25", "25-26"],
+  escuelas: [
+    {
+      nombre: "YAVNE", alumnos: 210, ciclo: "25-26",
+      ingTeorico: 44300950, ingReal: 31555692,
+      subsidio: 11540978, descFinanciero: 3200000,
+      becados: 97, pctBecados: 0.462,
+      abreijim: 12, colaboradores: 8,
+      conceptos: [
+        { nombre: "Colegiatura", monto: 24000000, triangulado: false },
+        { nombre: "Inscripción", monto: 4200000, triangulado: false },
+        { nombre: "Canasta", monto: 1800000, triangulado: false },
+        { nombre: "Camión", monto: 900000, triangulado: false },
+        { nombre: "Libros", monto: 655692, triangulado: false },
+        { nombre: "Uniformes", monto: 480000, triangulado: true },
+        { nombre: "Útiles", monto: 320000, triangulado: true },
+        { nombre: "Excursiones", monto: 200000, triangulado: true },
+      ],
+    },
+    {
+      nombre: "OLAMI", alumnos: 1147, ciclo: "25-26",
+      ingTeorico: 236002300, ingReal: 201623428,
+      subsidio: 21623887, descFinanciero: 8400000,
+      becados: 487, pctBecados: 0.425,
+      abreijim: 89, colaboradores: 34,
+      conceptos: [
+        { nombre: "Colegiatura", monto: 148000000, triangulado: false },
+        { nombre: "Inscripción", monto: 28000000, triangulado: false },
+        { nombre: "Canasta", monto: 12000000, triangulado: false },
+        { nombre: "Camión", monto: 8000000, triangulado: false },
+        { nombre: "Libros", monto: 5623428, triangulado: false },
+        { nombre: "Uniformes", monto: 3200000, triangulado: true },
+        { nombre: "Útiles", monto: 2100000, triangulado: true },
+        { nombre: "Excursiones", monto: 700000, triangulado: true },
+      ],
+    },
+    {
+      nombre: "EMUNA", alumnos: 592, ciclo: "25-26",
+      ingTeorico: 84418250, ingReal: 73013694,
+      subsidio: 16613658, descFinanciero: 4200000,
+      becados: 342, pctBecados: 0.578,
+      abreijim: 41, colaboradores: 19,
+      conceptos: [
+        { nombre: "Colegiatura", monto: 52000000, triangulado: false },
+        { nombre: "Inscripción", monto: 9800000, triangulado: false },
+        { nombre: "Canasta", monto: 5200000, triangulado: false },
+        { nombre: "Camión", monto: 3800000, triangulado: false },
+        { nombre: "Libros", monto: 2213694, triangulado: false },
+        { nombre: "Uniformes", monto: 1400000, triangulado: true },
+        { nombre: "Útiles", monto: 980000, triangulado: true },
+        { nombre: "Excursiones", monto: 420000, triangulado: true },
+      ],
+    },
+    {
+      nombre: "OR HAJAIM", alumnos: 505, ciclo: "25-26",
+      ingTeorico: 100095000, ingReal: 91940237,
+      subsidio: 7045716, descFinanciero: 2100000,
+      becados: 100, pctBecados: 0.198,
+      abreijim: 28, colaboradores: 15,
+      conceptos: [
+        { nombre: "Colegiatura", monto: 68000000, triangulado: false },
+        { nombre: "Inscripción", monto: 10800000, triangulado: false },
+        { nombre: "Canasta", monto: 6200000, triangulado: false },
+        { nombre: "Camión", monto: 4500000, triangulado: false },
+        { nombre: "Libros", monto: 2440237, triangulado: false },
+        { nombre: "Uniformes", monto: 1200000, triangulado: true },
+        { nombre: "Útiles", monto: 800000, triangulado: true },
+        { nombre: "Excursiones", monto: 300000, triangulado: true },
+      ],
+    },
+    {
+      nombre: "ATID", alumnos: 624, ciclo: "25-26",
+      ingTeorico: 153134954, ingReal: 146698721,
+      subsidio: 5831645, descFinanciero: 1800000,
+      becados: 68, pctBecados: 0.109,
+      abreijim: 22, colaboradores: 18,
+      conceptos: [
+        { nombre: "Colegiatura", monto: 108000000, triangulado: false },
+        { nombre: "Inscripción", monto: 18000000, triangulado: false },
+        { nombre: "Canasta", monto: 9200000, triangulado: false },
+        { nombre: "Camión", monto: 7000000, triangulado: false },
+        { nombre: "Libros", monto: 4498721, triangulado: false },
+        { nombre: "Uniformes", monto: 2100000, triangulado: true },
+        { nombre: "Útiles", monto: 1400000, triangulado: true },
+        { nombre: "Excursiones", monto: 500000, triangulado: true },
+      ],
+    },
+  ],
+  becasFuentes: [
+    { fuente: "COLEGIO", monto: 49000000, alumnos: 720, pctMonto: 0.786, pctAlumnos: 0.601 },
+    { fuente: "HERMANOS", monto: 5000000, alumnos: 189, pctMonto: 0.080, pctAlumnos: 0.158 },
+    { fuente: "MAGUEN DAVID", monto: 5000000, alumnos: 102, pctMonto: 0.080, pctAlumnos: 0.085 },
+    { fuente: "SEFARADI", monto: 3000000, alumnos: 68, pctMonto: 0.048, pctAlumnos: 0.057 },
+    { fuente: "TEMPORAL", monto: 792000, alumnos: 30, pctMonto: 0.013, pctAlumnos: 0.025 },
+    { fuente: "BET EL", monto: 154000, alumnos: 8, pctMonto: 0.002, pctAlumnos: 0.007 },
+  ],
+  sectores: [
+    { nombre: "KÍNDER", alumnos: 605, ingReal: 65000000, subsidio: 8000000 },
+    { nombre: "PRIMARIA", alumnos: 1162, ingReal: 209000000, subsidio: 24000000 },
+    { nombre: "SECUNDARIA", alumnos: 719, ingReal: 155000000, subsidio: 16000000 },
+    { nombre: "PREPARATORIA", alumnos: 592, ingReal: 117000000, subsidio: 15000000 },
+  ],
+  ltvData: {
+    costoAnualPromedio: 85000,
+    aniosTotal: 15,
+    tasaDescuento: 0.08,
+    ltvNominal: 1275000,
+    ltvPV: 728000,
+    desglose: [
+      { nivel: "Kínder (3 años)", costo: 185000 },
+      { nivel: "Primaria (6 años)", costo: 510000 },
+      { nivel: "Secundaria (3 años)", costo: 285000 },
+      { nivel: "Preparatoria (3 años)", costo: 295000 },
+    ],
+  },
+};
 
-.sb-foot {
-  padding: 14px 18px;
-  border-top: 1px solid rgba(255,255,255,0.07);
-  background: rgba(0,0,0,0.15);
-}
-.status-row {
-  display: flex; align-items: center; gap: 6px;
-  font-family: 'Source Code Pro', monospace;
-  font-size: 9px;
-  color: rgba(0,229,160,0.8);
-  letter-spacing: 0.5px;
-  margin-bottom: 10px;
-}
-.dot-on { width: 6px; height: 6px; background: #00E5A0; border-radius: 50%; animation: blink 2.5s infinite; }
-@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
-.ss-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
-.ss {
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 4px;
-  padding: 5px 7px;
-  text-align: center;
-}
-.ss-v { font-family: 'Source Code Pro', monospace; font-size: 13px; color: var(--gold3); font-weight: 500; }
-.ss-l { font-size: 7.5px; color: rgba(255,255,255,0.3); letter-spacing: 0.5px; }
+// ─── COMPONENTES UI ───────────────────────────────────────────────────────────
+const KPICard = ({ label, value, sub, accent }) => (
+  <div style={{
+    background: COLORS.surface, border: `1px solid ${COLORS.border}`,
+    borderRadius: 8, padding: "18px 20px", minWidth: 0,
+  }}>
+    <div style={{ fontSize: 10, letterSpacing: 2, color: COLORS.textMuted, textTransform: "uppercase", marginBottom: 8 }}>{label}</div>
+    <div style={{ fontSize: 24, fontFamily: "'DM Mono', monospace", color: accent || COLORS.text, fontWeight: 500 }}>{value}</div>
+    {sub && <div style={{ fontSize: 11, color: COLORS.textSub, marginTop: 4 }}>{sub}</div>}
+  </div>
+);
 
-/* ══════════════════════════ TOPBAR ══════════════════════════ */
-.topbar {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 0 22px;
-  height: 52px;
-  background: var(--bg2);
-  border-bottom: 1px solid var(--border2);
-  flex-shrink: 0;
-  box-shadow: 0 1px 4px rgba(15,32,68,0.06);
-}
-.tb-l { display: flex; align-items: center; gap: 16px; }
-
-.alert-pill {
-  display: flex; align-items: center; gap: 7px;
-  background: var(--red2);
-  border: 1px solid rgba(192,57,43,0.2);
-  border-radius: 4px;
-  padding: 5px 11px;
-}
-.ap-label { font-family: 'Source Code Pro', monospace; font-size: 8px; color: var(--dim); letter-spacing: 1px; }
-.ap-value { font-family: 'Playfair Display', serif; font-size: 14px; font-weight: 700; color: var(--red); }
-
-.tb-title {
-  font-family: 'Playfair Display', serif;
-  font-size: 17px;
-  font-weight: 600;
-  color: var(--navy);
-  letter-spacing: 0.2px;
-}
-.tb-sub {
-  font-family: 'Source Code Pro', monospace;
-  font-size: 8.5px;
-  color: var(--muted);
-  letter-spacing: 0.3px;
-  margin-top: 1px;
-}
-.tb-r { display: flex; align-items: center; gap: 10px; }
-.tb-clock {
-  font-family: 'Source Code Pro', monospace;
-  font-size: 12px;
-  color: var(--blue);
-  background: rgba(39,86,168,0.06);
-  border: 1px solid rgba(39,86,168,0.15);
-  border-radius: 4px;
-  padding: 4px 10px;
-  letter-spacing: 0.5px;
-}
-.btn {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 6px 14px; border-radius: 4px;
-  font-size: 11px; font-weight: 600;
-  cursor: pointer; border: none;
-  transition: all .15s;
-  font-family: 'Source Sans 3', sans-serif;
-  letter-spacing: 0.3px;
-}
-.btn-primary {
-  background: var(--navy);
-  color: #fff;
-}
-.btn-primary:hover { background: var(--navy2); box-shadow: 0 2px 8px rgba(15,32,68,0.2); }
-.btn-danger {
-  background: var(--red2);
-  color: var(--red);
-  border: 1px solid rgba(192,57,43,0.25);
-}
-.btn-danger:hover { background: rgba(192,57,43,0.14); }
-.btn-success {
-  background: var(--green2);
-  color: var(--green);
-  border: 1px solid rgba(26,122,74,0.2);
-}
-
-/* ══════════════════════════ CONTENT ══════════════════════════ */
-.main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-.content { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 18px 22px; }
-::-webkit-scrollbar { width: 5px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(15,32,68,0.15); border-radius: 3px; }
-.panel { display: none; }
-.panel.active { display: block; animation: fadeIn .25s ease; }
-@keyframes fadeIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:translateY(0)} }
-
-/* ══════════════════════════ KPI ══════════════════════════ */
-.kpi-row { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; margin-bottom: 14px; }
-.kpi {
-  background: var(--bg2);
-  border: 1px solid var(--border);
-  border-radius: var(--r);
-  padding: 14px 16px;
-  position: relative;
-  overflow: hidden;
-  box-shadow: 0 1px 3px rgba(15,32,68,0.05);
-  transition: box-shadow .2s;
-}
-.kpi:hover { box-shadow: 0 3px 10px rgba(15,32,68,0.09); }
-.kpi::before {
-  content: '';
-  position: absolute;
-  top: 0; left: 0; right: 0;
-  height: 2px;
-}
-.kpi-r::before { background: var(--red); }
-.kpi-o::before { background: var(--orange); }
-.kpi-b::before { background: var(--blue); }
-.kpi-g::before { background: var(--green); }
-.kpi-lbl {
-  font-family: 'Source Code Pro', monospace;
-  font-size: 8px; color: var(--muted);
-  letter-spacing: 1.5px; text-transform: uppercase;
-  margin-bottom: 7px;
-}
-.kpi-val {
-  font-family: 'Playfair Display', serif;
-  font-size: 34px; font-weight: 700;
-  line-height: 1; margin-bottom: 5px;
-}
-.kv-r { color: var(--red); }
-.kv-o { color: var(--orange); }
-.kv-b { color: var(--blue); }
-.kv-g { color: var(--green); }
-.kpi-delta { font-size: 11px; color: var(--muted); }
-.up { color: var(--red); } .dn { color: var(--green); }
-
-/* ══════════════════════════ GRID ══════════════════════════ */
-.g2 { display: grid; grid-template-columns: 1.4fr 1fr; gap: 14px; margin-bottom: 14px; }
-.g21 { display: grid; grid-template-columns: 2fr 1fr; gap: 14px; margin-bottom: 14px; }
-.g3 { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; margin-bottom: 14px; }
-.gcol { display: flex; flex-direction: column; gap: 12px; }
-
-/* ══════════════════════════ CARD ══════════════════════════ */
-.card {
-  background: var(--bg2);
-  border: 1px solid var(--border);
-  border-radius: var(--r);
-  overflow: hidden;
-  box-shadow: 0 1px 3px rgba(15,32,68,0.05);
-}
-.card-head {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--border);
-  background: linear-gradient(90deg, var(--bg2), var(--bg));
-}
-.card-title {
-  font-family: 'Playfair Display', serif;
-  font-size: 13px; font-weight: 600;
-  color: var(--navy); letter-spacing: 0.2px;
-}
-.card-sub {
-  font-family: 'Source Code Pro', monospace;
-  font-size: 8px; color: var(--muted); letter-spacing: 0.5px;
-}
-.card-body { padding: 14px 16px; }
-
-/* ══════════════════════════ BADGES ══════════════════════════ */
-.badge {
-  display: inline-flex; align-items: center;
-  font-size: 9px; font-weight: 600;
-  padding: 2px 8px; border-radius: 3px;
-  font-family: 'Source Code Pro', monospace;
-  letter-spacing: 0.3px; white-space: nowrap;
-}
-.badge-r { background: var(--red2); color: var(--red); border: 1px solid rgba(192,57,43,0.2); }
-.badge-o { background: var(--orange2); color: var(--orange); border: 1px solid rgba(212,101,26,0.2); }
-.badge-g { background: var(--green2); color: var(--green); border: 1px solid rgba(26,122,74,0.2); }
-.badge-b { background: rgba(39,86,168,0.08); color: var(--blue); border: 1px solid rgba(39,86,168,0.2); }
-
-/* ══════════════════════════ ALERT FEED ══════════════════════════ */
-.af-item {
-  display: flex; gap: 10px;
-  padding: 11px 16px;
-  border-bottom: 1px solid var(--border);
-  cursor: pointer; transition: background .15s;
-  align-items: flex-start;
-}
-.af-item:hover { background: rgba(15,32,68,0.02); }
-.af-item:last-child { border-bottom: none; }
-.af-accent { width: 3px; border-radius: 2px; flex-shrink: 0; align-self: stretch; min-height: 32px; }
-.aa-r { background: var(--red); }
-.aa-o { background: var(--orange); }
-.aa-g { background: var(--green); }
-.af-body { flex: 1; min-width: 0; }
-.af-meta { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; flex-wrap: wrap; }
-.af-src { font-family: 'Source Code Pro', monospace; font-size: 8px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
-.af-time { font-size: 9px; color: var(--muted); margin-left: auto; white-space: nowrap; font-family: 'Source Code Pro', monospace; }
-.af-text { font-size: 11px; line-height: 1.5; color: var(--dim); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-.af-tags { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 5px; }
-.tag { font-family: 'Source Code Pro', monospace; font-size: 8px; padding: 1px 6px; border-radius: 2px; background: var(--bg3); border: 1px solid var(--border2); color: var(--muted); }
-
-/* ══════════════════════════ DONUT ══════════════════════════ */
-.donut-wrap { display: flex; align-items: center; gap: 16px; padding: 12px 16px; }
-.d-legend { display: flex; flex-direction: column; gap: 8px; flex: 1; }
-.dl-i { display: flex; align-items: center; gap: 7px; }
-.dl-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
-.dl-lbl { font-size: 11px; color: var(--dim); }
-.dl-val { margin-left: auto; font-family: 'Source Code Pro', monospace; font-size: 10px; color: var(--muted); }
-
-/* ══════════════════════════ BARS ══════════════════════════ */
-.bar-list { display: flex; flex-direction: column; gap: 8px; }
-.bar-row { display: flex; align-items: center; gap: 8px; }
-.bl-lbl { font-size: 10px; color: var(--dim); width: 90px; text-align: right; flex-shrink: 0; font-family: 'Source Code Pro', monospace; }
-.bl-track { flex: 1; background: var(--bg3); border-radius: 2px; height: 5px; border: 1px solid var(--border); }
-.bl-fill { height: 100%; border-radius: 2px; transition: width 1.2s cubic-bezier(.4,0,.2,1); }
-.bl-num { font-family: 'Source Code Pro', monospace; font-size: 9px; color: var(--muted); width: 26px; text-align: right; }
-
-/* ══════════════════════════ SCORE BAR ══════════════════════════ */
-.sb-track { height: 5px; background: var(--bg3); border-radius: 3px; overflow: hidden; border: 1px solid var(--border); }
-.sb-fill { height: 100%; border-radius: 3px; transition: width 1s ease; }
-.sb-labs { display: flex; justify-content: space-between; font-family: 'Source Code Pro', monospace; font-size: 7.5px; color: var(--muted); margin-top: 3px; }
-
-/* ══════════════════════════ GAUGES ══════════════════════════ */
-.gauge-row { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; }
-.gauge-item { text-align: center; }
-.gauge-circle {
-  width: 54px; height: 54px; border-radius: 50%;
-  margin: 0 auto 6px;
-  display: flex; align-items: center; justify-content: center;
-  font-family: 'Playfair Display', serif;
-  font-size: 18px; font-weight: 700;
-  border: 2px solid;
-}
-.gc-r { color: var(--red); border-color: var(--red); background: var(--red2); }
-.gc-o { color: var(--orange); border-color: var(--orange); background: var(--orange2); }
-.gc-g { color: var(--green); border-color: var(--green); background: var(--green2); }
-.gauge-lbl { font-family: 'Source Code Pro', monospace; font-size: 8px; color: var(--muted); }
-
-/* ══════════════════════════ HEATMAP ══════════════════════════ */
-.hm-grid { display: grid; grid-template-columns: repeat(30,1fr); gap: 2px; }
-.hm { aspect-ratio: 1; border-radius: 2px; cursor: pointer; transition: transform .1s; }
-.hm:hover { transform: scale(1.5); }
-.hm0 { background: var(--bg3); }
-.hm1 { background: rgba(26,122,74,.4); }
-.hm2 { background: rgba(212,101,26,.5); }
-.hm3 { background: rgba(192,57,43,.7); }
-
-/* ══════════════════════════ SOURCES ══════════════════════════ */
-.src-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.src-item {
-  display: flex; align-items: center; gap: 9px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--r);
-  padding: 9px 12px;
-  transition: border-color .15s;
-}
-.src-item:hover { border-color: var(--border2); }
-.src-icon { width: 30px; height: 30px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; }
-.src-nm { font-size: 11px; font-weight: 600; margin-bottom: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text2); }
-.src-ct { font-family: 'Source Code Pro', monospace; font-size: 8px; color: var(--muted); }
-.src-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
-.sd-on { background: var(--green); }
-.sd-off { background: var(--orange); }
-
-/* ══════════════════════════ DIVIDER ══════════════════════════ */
-.gold-divider {
-  height: 1px;
-  background: linear-gradient(90deg, transparent, var(--gold2), transparent);
-  margin: 0 16px;
-  opacity: 0.4;
-}
-
-/* ══════════════════════════ ANALYZER ══════════════════════════ */
-.az-wrap { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-.inp-lbl { font-family: 'Source Code Pro', monospace; font-size: 8px; color: var(--muted); letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 5px; }
-.ta {
-  width: 100%; background: var(--bg);
-  border: 1px solid var(--border2);
-  border-radius: var(--r); color: var(--text);
-  font-size: 12px; padding: 10px 13px;
-  resize: none; height: 105px; outline: none;
-  transition: border-color .2s;
-  font-family: 'Source Sans 3', sans-serif; line-height: 1.5;
-}
-.ta:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(39,86,168,0.07); }
-.ta::placeholder { color: var(--muted); }
-.sel {
-  background: var(--bg); border: 1px solid var(--border2);
-  border-radius: var(--r); color: var(--text);
-  font-size: 11px; padding: 7px 10px; outline: none;
-  width: 100%; font-family: 'Source Sans 3', sans-serif;
-  cursor: pointer; transition: border-color .2s;
-}
-.sel:focus { border-color: var(--blue); }
-.meta-g { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 9px 0; }
-.az-btn {
-  width: 100%; padding: 10px;
-  background: var(--navy); color: #fff;
-  border: none; border-radius: var(--r);
-  font-size: 12px; font-weight: 600;
-  cursor: pointer; font-family: 'Source Sans 3', sans-serif;
-  letter-spacing: 0.5px; text-transform: uppercase;
-  transition: all .2s;
-  display: flex; align-items: center; justify-content: center; gap: 8px;
-}
-.az-btn:hover:not(:disabled) { background: var(--navy2); box-shadow: 0 3px 12px rgba(15,32,68,0.2); }
-.az-btn:disabled { opacity: .4; cursor: not-allowed; }
-.samples { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 10px; }
-.smp {
-  padding: 3px 9px; background: var(--bg);
-  border: 1px solid var(--border2); border-radius: 3px;
-  color: var(--dim); font-size: 9.5px; cursor: pointer;
-  font-family: 'Source Code Pro', monospace;
-  transition: all .15s;
-}
-.smp:hover { background: var(--goldl2); border-color: var(--border3); color: var(--gold); }
-
-.result-box { background: var(--bg); border: 1px solid var(--border2); border-radius: var(--r); overflow: hidden; display: none; }
-.result-box.show { display: block; animation: fadeIn .25s ease; }
-.res-head { padding: 14px 16px; border-bottom: 1px solid var(--border); display: flex; gap: 13px; align-items: center; background: var(--bg2); }
-.score-ring {
-  width: 56px; height: 56px; border-radius: 50%;
-  display: flex; align-items: center; justify-content: center;
-  font-family: 'Playfair Display', serif; font-size: 20px; font-weight: 700;
-  flex-shrink: 0; border: 2px solid;
-}
-.sr-r { color: var(--red); border-color: var(--red); background: var(--red2); }
-.sr-o { color: var(--orange); border-color: var(--orange); background: var(--orange2); }
-.sr-g { color: var(--green); border-color: var(--green); background: var(--green2); }
-.res-lv { font-family: 'Playfair Display', serif; font-size: 16px; font-weight: 700; margin-bottom: 3px; }
-.res-sub { font-size: 10px; color: var(--dim); }
-.res-grid { display: grid; grid-template-columns: 1fr 1fr; }
-.rg-cell { padding: 11px 16px; border-right: 1px solid var(--border); }
-.rg-cell:nth-child(2) { border-right: none; }
-.rg-cell:nth-child(3), .rg-cell:nth-child(4) { border-top: 1px solid var(--border); }
-.rg-cell:nth-child(4) { border-right: none; }
-.rg-lbl { font-family: 'Source Code Pro', monospace; font-size: 7.5px; color: var(--muted); letter-spacing: 1px; text-transform: uppercase; margin-bottom: 5px; }
-.rg-text { font-size: 11px; color: var(--dim); line-height: 1.6; white-space: pre-wrap; }
-.res-actions { padding: 12px 16px; border-top: 1px solid var(--border); background: var(--bg2); }
-.action-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
-.chip { background: rgba(39,86,168,0.07); border: 1px solid rgba(39,86,168,0.18); color: var(--blue); font-size: 9.5px; padding: 4px 9px; border-radius: 3px; font-family: 'Source Code Pro', monospace; }
-.res-placeholder { color: var(--muted); font-family: 'Source Code Pro', monospace; font-size: 10px; padding: 28px; text-align: center; border: 1px dashed var(--border2); border-radius: var(--r); line-height: 2.2; background: var(--bg); }
-.spin { width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.25); border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
-
-/* ══════════════════════════ CRISIS ══════════════════════════ */
-.crisis-tl { display: flex; flex-direction: column; }
-.cs {
-  display: flex; gap: 13px;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--border);
-  opacity: .3; transition: all .4s;
-}
-.cs.active { opacity: 1; background: rgba(39,86,168,0.03); }
-.cs.done { opacity: .65; }
-.cs-ind { display: flex; flex-direction: column; align-items: center; flex-shrink: 0; width: 26px; }
-.cs-dot {
-  width: 26px; height: 26px; border-radius: 50%;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 11px; font-weight: 600;
-  border: 1.5px solid var(--border2); background: var(--bg);
-  font-family: 'Source Sans 3', sans-serif; color: var(--muted);
-}
-.cs-dot.active { border-color: var(--blue); background: rgba(39,86,168,0.08); color: var(--blue); }
-.cs-dot.done { border-color: var(--green); background: var(--green2); color: var(--green); }
-.cs-dot.alert-d { border-color: var(--red); background: var(--red2); color: var(--red); animation: alertPulse 1.2s infinite; }
-@keyframes alertPulse { 0%,100%{box-shadow:0 0 0 0 rgba(192,57,43,0.3)} 50%{box-shadow:0 0 0 6px rgba(192,57,43,0)} }
-.cs-line { flex: 1; width: 1.5px; background: var(--border); margin: 3px auto; }
-.cs-line.done { background: var(--green); }
-.cs-con { flex: 1; }
-.cs-title { font-family: 'Playfair Display', serif; font-size: 13px; font-weight: 600; color: var(--navy); margin-bottom: 3px; }
-.cs-desc { font-size: 11px; color: var(--dim); line-height: 1.5; }
-.cs-time { font-family: 'Source Code Pro', monospace; font-size: 8.5px; color: var(--muted); margin-top: 3px; }
-.cs-det { margin-top: 8px; background: var(--bg2); border: 1px solid var(--border); border-radius: 5px; padding: 10px 12px; font-size: 10.5px; color: var(--dim); line-height: 1.6; display: none; }
-.cs-det.show { display: block; animation: fadeIn .2s ease; }
-.crisis-prog { height: 2px; background: var(--bg3); margin: 0 16px 12px; border-radius: 2px; overflow: hidden; }
-.cp-fill { height: 100%; background: linear-gradient(90deg, var(--blue), var(--green)); border-radius: 2px; transition: width .5s ease; width: 0%; }
-.crisis-btns { padding: 12px 16px; border-top: 1px solid var(--border); display: flex; gap: 8px; background: var(--bg); }
-
-/* ══════════════════════════ MAP ══════════════════════════ */
-.map-wrap { position: relative; height: 280px; }
-#map-svg { width: 100%; height: 100%; }
-.map-tooltip {
-  position: absolute; background: var(--bg2); border: 1px solid var(--border2);
-  border-radius: 5px; padding: 8px 12px; font-size: 10.5px;
-  pointer-events: none; opacity: 0; transition: opacity .15s; z-index: 100;
-  font-family: 'Source Code Pro', monospace;
-  box-shadow: 0 3px 12px rgba(15,32,68,0.12);
-}
-
-/* ══════════════════════════ NETWORK ══════════════════════════ */
-.net-wrap { height: 310px; position: relative; }
-#net-svg { width: 100%; height: 100%; }
-
-/* ══════════════════════════ TIMELINE ══════════════════════════ */
-.tl-wrap { height: 260px; }
-
-/* ══════════════════════════ TOAST ══════════════════════════ */
-#toast {
-  position: fixed; bottom: 20px; right: 20px;
-  background: var(--navy); color: rgba(255,255,255,0.9);
-  border-radius: 5px; padding: 10px 16px;
-  font-size: 11.5px; z-index: 10000;
-  opacity: 0; transform: translateY(6px);
-  transition: all .3s; pointer-events: none;
-  font-family: 'Source Code Pro', monospace;
-  box-shadow: 0 4px 16px rgba(15,32,68,0.25);
-  letter-spacing: 0.2px;
-}
-#toast.show { opacity: 1; transform: translateY(0); }
-
-/* Horizontal rule with gold */
-.section-divider {
-  display: flex; align-items: center; gap: 12px;
-  margin-bottom: 14px;
-}
-.sd-line { flex: 1; height: 1px; background: var(--border); }
-.sd-diamond { width: 6px; height: 6px; background: var(--gold2); transform: rotate(45deg); flex-shrink: 0; }
-
-/* Predictive Center */
-.kpi-gold::before { background: var(--gold); }
-.kv-gold { color: var(--gold); }
-.badge-gold { background: var(--goldl); color: var(--gold); border: 1px solid var(--border3); }
-.horizon-tabs { display: flex; gap: 0; margin-bottom: 14px; background: var(--bg3); border-radius: var(--r); padding: 3px; border: 1px solid var(--border); }
-.ht { flex: 1; text-align: center; padding: 7px 12px; border-radius: 4px; font-size: 11px; font-weight: 600; cursor: pointer; transition: all .15s; color: var(--dim); }
-.ht.active { background: var(--bg2); color: var(--navy); box-shadow: 0 1px 4px rgba(15,32,68,0.1); }
-.ht-content { display: none; }
-.ht-content.active { display: block; animation: fadeIn .2s ease; }
-.pred-card { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--r); padding: 13px 15px; position: relative; overflow: hidden; margin-bottom: 8px; transition: all .15s; }
-.pred-card:hover { border-color: var(--border2); box-shadow: 0 2px 8px rgba(15,32,68,0.07); }
-.pred-card::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; }
-.pc-r::before { background: var(--red); }
-.pc-o::before { background: var(--orange); }
-.pc-gold::before { background: var(--gold); }
-.pred-head { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 7px; }
-.pred-title { font-family: 'Playfair Display', serif; font-size: 13px; font-weight: 600; color: var(--navy); line-height: 1.3; }
-.pred-meta { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; flex-wrap: wrap; }
-.pred-body { font-size: 11px; color: var(--dim); line-height: 1.6; margin-bottom: 8px; }
-.pred-confidence { display: flex; align-items: center; gap: 8px; }
-.pc-label { font-family: 'Source Code Pro', monospace; font-size: 8px; color: var(--muted); white-space: nowrap; }
-.pc-bar { flex: 1; height: 4px; background: var(--bg3); border-radius: 2px; overflow: hidden; border: 1px solid var(--border); }
-.pc-fill { height: 100%; border-radius: 2px; }
-.pc-pct { font-family: 'Source Code Pro', monospace; font-size: 9px; color: var(--dim); white-space: nowrap; }
-.risk-meter { position: relative; height: 10px; border-radius: 5px; overflow: hidden; background: linear-gradient(90deg,#1A7A4A 0%,#D4651A 55%,#C0392B 100%); margin: 8px 0; }
-.risk-needle { position: absolute; top: -3px; width: 3px; height: 16px; background: var(--navy); border-radius: 2px; transform: translateX(-50%); transition: left .8s cubic-bezier(.4,0,.2,1); }
-.risk-labels { display: flex; justify-content: space-between; font-family: 'Source Code Pro', monospace; font-size: 7px; color: var(--muted); margin-top: 3px; }
-.narr-list { display: flex; flex-direction: column; gap: 8px; }
-.narr-item { display: flex; align-items: center; gap: 10px; padding: 9px 13px; background: var(--bg); border: 1px solid var(--border); border-radius: 5px; transition: all .15s; }
-.narr-item:hover { border-color: var(--border2); }
-.narr-icon { width: 28px; height: 28px; border-radius: 5px; display: flex; align-items: center; justify-content: center; font-size: 13px; flex-shrink: 0; }
-.narr-name { font-size: 12px; font-weight: 600; color: var(--text2); margin-bottom: 1px; }
-.narr-trend { font-family: 'Source Code Pro', monospace; font-size: 9px; color: var(--muted); }
-.narr-bar-wrap { flex: 1; }
-.narr-bar-track { height: 5px; background: var(--bg3); border-radius: 2px; overflow: hidden; }
-.narr-bar-fill { height: 100%; border-radius: 2px; transition: width 1.2s ease; }
-.narr-pct { font-family: 'Source Code Pro', monospace; font-size: 10px; color: var(--dim); text-align: right; margin-top: 2px; }
-.trend-up { color: var(--red); }
-.trend-dn { color: var(--green); }
-.trend-eq { color: var(--muted); }
-.cal-grid { display: grid; grid-template-columns: repeat(7,1fr); gap: 3px; margin-bottom: 8px; }
-.cal-day { aspect-ratio: 1; border-radius: 4px; display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: pointer; transition: all .15s; border: 1px solid transparent; font-size: 9px; }
-.cal-day:hover { border-color: var(--border2); transform: scale(1.05); }
-.cal-num { font-family: 'Source Code Pro', monospace; font-size: 9px; font-weight: 500; }
-.cal-dot { width: 4px; height: 4px; border-radius: 50%; margin-top: 2px; }
-.cr-0 { background: var(--bg3); }
-.cr-1 { background: rgba(26,122,74,0.15); }
-.cr-2 { background: rgba(212,101,26,0.18); }
-.cr-3 { background: rgba(192,57,43,0.22); }
-.cal-day-lbl { font-family: 'Source Code Pro', monospace; font-size: 8px; color: var(--muted); text-align: center; padding: 2px 0; }
-.impact-table { width: 100%; border-collapse: collapse; }
-.impact-table th { font-family: 'Source Code Pro', monospace; font-size: 8px; color: var(--muted); letter-spacing: 1px; text-transform: uppercase; padding: 7px 10px; border-bottom: 2px solid var(--border2); text-align: left; background: var(--bg); }
-.impact-table td { padding: 8px 10px; border-bottom: 1px solid var(--border); font-size: 11px; color: var(--dim); }
-.impact-table tr:last-child td { border-bottom: none; }
-.impact-table tr:hover td { background: rgba(15,32,68,0.02); }
-.mb12 { margin-bottom: 12px; }
-.chip-row { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 10px; }
-.chip.selected { background: var(--navy); color: #fff; border-color: var(--navy); }
-.gen-wrap { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-.gen-controls { display: flex; flex-direction: column; gap: 9px; }
-.gen-btn {
-  width: 100%;
-  padding: 10px;
-  background: var(--navy);
-  color: #fff;
-  border: none;
-  border-radius: var(--r);
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  font-family: 'Source Sans 3', sans-serif;
-  letter-spacing: 0.3px;
-  transition: all .2s;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-}
-.gen-btn:hover:not(:disabled) { background: var(--navy2); box-shadow: 0 3px 12px rgba(15,32,68,0.18); }
-.gen-btn:disabled { opacity: .4; cursor: not-allowed; }
-.gen-placeholder { background: var(--bg); border: 1px dashed var(--border2); border-radius: var(--r); padding: 28px; text-align: center; color: var(--muted); font-family: 'Source Code Pro', monospace; font-size: 10px; line-height: 2.2; }
-.gen-result { background: var(--bg); border: 1px solid var(--border2); border-radius: var(--r); padding: 14px; display: none; animation: fadeIn .25s ease; }
-.gen-result.show { display: block; }
-</style>
-</head>
-<body>
-<div class="shell">
-
-<!-- ══════════════════════════ SIDEBAR ══════════════════════════ -->
-<aside class="sb">
-  <div class="sb-logo">
-    <div class="logo-emblem">
-      <div class="logo-star">
-        <svg viewBox="0 0 34 34" fill="none">
-          <polygon points="17,3 20.5,12 30,12 22.5,18 25.5,28 17,22 8.5,28 11.5,18 4,12 13.5,12" fill="none" stroke="#B8922A" stroke-width="1.2"/>
-          <polygon points="17,6 19.5,13.5 27.5,13.5 21,18.5 23.5,26 17,21.5 10.5,26 13,18.5 6.5,13.5 14.5,13.5" fill="rgba(184,146,42,0.12)"/>
-          <!-- Magen David simplified -->
-          <polygon points="17,5 21,15 13,15" fill="none" stroke="#D4A843" stroke-width="1" opacity="0.7"/>
-          <polygon points="17,25 13,15 21,15" fill="none" stroke="#D4A843" stroke-width="1" opacity="0.7"/>
-        </svg>
-      </div>
-      <div class="logo-name">
-        Tribuna Israelita
-        <span>MONITOR · MX</span>
-      </div>
+const BarH = ({ label, value, max, color, right }) => (
+  <div style={{ marginBottom: 10 }}>
+    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+      <span style={{ fontSize: 12, color: COLORS.textSub }}>{label}</span>
+      <span style={{ fontSize: 12, color: COLORS.text, fontFamily: "DM Mono, monospace" }}>{right}</span>
+    </div>
+    <div style={{ height: 4, background: COLORS.border, borderRadius: 2 }}>
+      <div style={{ height: 4, width: `${Math.min(100, (value / max) * 100)}%`, background: color, borderRadius: 2, transition: "width 0.5s" }} />
     </div>
   </div>
+);
 
-  <nav class="sb-nav">
-    <div class="nav-section">Operaciones</div>
-    <div class="ni active" onclick="nav('dashboard',this)"><span class="ico">▦</span> Tablero Principal <span class="nb">4</span></div>
-    <div class="ni" onclick="nav('analyzer',this)"><span class="ico">◈</span> Analizador IA</div>
-    <div class="ni" onclick="nav('crisis',this)"><span class="ico">⚡</span> Protocolo de Crisis</div>
-    <div class="nav-section">Inteligencia Predictiva</div>
-    <div class="ni" onclick="nav('predict',this)"><span class="ico">◎</span> Centro Predictivo <span class="nb">NEW</span></div>
-    <div class="ni" onclick="nav('campaigns',this)"><span class="ico">★</span> Motor de Campañas</div>
-    <div class="ni" onclick="nav('impact',this)"><span class="ico">▷</span> Medición de Impacto</div>
-    <div class="nav-section">Inteligencia</div>
-    <div class="ni" onclick="nav('map',this)"><span class="ico">◉</span> Mapa Geográfico</div>
-    <div class="ni" onclick="nav('network',this)"><span class="ico">⬡</span> Red de Actores</div>
-    <div class="ni" onclick="nav('timeline',this)"><span class="ico">▷</span> Evolución Histórica</div>
-    <div class="nav-section">Sistema</div>
-    <div class="ni" onclick="nav('sources',this)"><span class="ico">◎</span> Fuentes</div>
-  </nav>
-
-  <div class="sb-foot">
-    <div class="status-row">
-      <div class="dot-on"></div>
-      SISTEMA ACTIVO
-    </div>
-    <div class="ss-grid">
-      <div class="ss"><div class="ss-v">47</div><div class="ss-l">FUENTES</div></div>
-      <div class="ss"><div class="ss-v" style="color:#FF7070">4</div><div class="ss-l">CRÍTICOS</div></div>
-      <div class="ss"><div class="ss-v">1.2M</div><div class="ss-l">ALCANCE</div></div>
-      <div class="ss"><div class="ss-v" style="color:#70E0B0">87%</div><div class="ss-l">PRECISIÓN</div></div>
-    </div>
+const SectionTitle = ({ children }) => (
+  <div style={{ fontSize: 9, letterSpacing: 3, color: COLORS.textMuted, textTransform: "uppercase", marginBottom: 16, paddingBottom: 8, borderBottom: `1px solid ${COLORS.border}` }}>
+    {children}
   </div>
-</aside>
+);
 
-<!-- ══════════════════════════ MAIN ══════════════════════════ -->
-<main class="main">
-  <div class="topbar">
-    <div class="tb-l">
-      <div class="alert-pill">
-        <div>
-          <div class="ap-label">NIVEL DE ALERTA</div>
-          <div class="ap-value">ALTO</div>
-        </div>
-      </div>
-      <div>
-        <div class="tb-title" id="tb-title">Tablero Principal</div>
-        <div class="tb-sub" id="tb-sub">26 MAR 2026 &nbsp;·&nbsp; Tiempo real &nbsp;·&nbsp; 23 incidentes hoy</div>
-      </div>
-    </div>
-    <div class="tb-r">
-      <div class="tb-clock" id="clock">--:--:--</div>
-      <button class="btn btn-primary" onclick="nav('analyzer',document.querySelectorAll('.ni')[1])">+ Analizar texto</button>
-      <button class="btn btn-danger" onclick="nav('crisis',document.querySelectorAll('.ni')[2])">⚡ Protocolo</button>
-    </div>
-  </div>
+// ─── TAB RESUMEN ─────────────────────────────────────────────────────────────
+function TabResumen({ data, ciclo }) {
+  const escuelas = data.escuelas.filter((e) => e.ciclo === ciclo || !ciclo);
+  const totAlumnos = escuelas.reduce((s, e) => s + e.alumnos, 0);
+  const totTeorico = escuelas.reduce((s, e) => s + e.ingTeorico, 0);
+  const totReal = escuelas.reduce((s, e) => s + e.ingReal, 0);
+  const totSubsidio = escuelas.reduce((s, e) => s + e.subsidio, 0);
+  const totDescFin = escuelas.reduce((s, e) => s + e.descFinanciero, 0);
+  const totBecados = escuelas.reduce((s, e) => s + e.becados, 0);
+  const pctCaptacion = totTeorico > 0 ? totReal / totTeorico : 0;
+  const pctBecados = totAlumnos > 0 ? totBecados / totAlumnos : 0;
+  const pctSubsidioVsReal = totReal > 0 ? totSubsidio / totReal : 0;
+  const brecha = totTeorico - totReal;
 
-  <div class="content">
+  const conceptosAcad = {};
+  const conceptosTriang = {};
+  escuelas.forEach((e) => {
+    (e.conceptos || []).forEach((c) => {
+      const dest = c.triangulado ? conceptosTriang : conceptosAcad;
+      dest[c.nombre] = (dest[c.nombre] || 0) + c.monto;
+    });
+  });
 
-  <!-- ══════ DASHBOARD ══════ -->
-  <div id="p-dashboard" class="panel active">
-    <div class="kpi-row">
-      <div class="kpi kpi-r"><div class="kpi-lbl">// Incidentes hoy</div><div class="kpi-val kv-r">23</div><div class="kpi-delta"><span class="up">↑ +8</span> vs. ayer</div></div>
-      <div class="kpi kpi-o"><div class="kpi-lbl">// Muy peligrosos</div><div class="kpi-val kv-o">4</div><div class="kpi-delta"><span class="up">↑ +2</span> esta semana</div></div>
-      <div class="kpi kpi-b"><div class="kpi-lbl">// Fuentes activas</div><div class="kpi-val kv-b">47</div><div class="kpi-delta"><span class="dn">↑ +3</span> nuevas</div></div>
-      <div class="kpi kpi-g"><div class="kpi-lbl">// Alcance estimado</div><div class="kpi-val kv-g">1.2M</div><div class="kpi-delta"><span class="up">↑ +340k</span> vs. ayer</div></div>
-    </div>
+  const ltv = data.ltvData;
 
-    <div class="g2">
-      <div class="card">
-        <div class="card-head">
-          <div class="card-title">Alertas Recientes</div>
-          <div class="card-sub">ÚLTIMAS 6 HORAS</div>
-        </div>
-        <div class="af-item"><div class="af-accent aa-r"></div><div class="af-body"><div class="af-meta"><span class="badge badge-r">Crítico · 87</span><span class="af-src">Twitter / X</span><span class="af-time">12 min</span></div><div class="af-text">Hilo viral con 2,400 RTs afirmando que "los judíos controlan los medios mexicanos" — con citas falsas atribuidas a figuras públicas. Alcance estimado: 180k usuarios.</div><div class="af-tags"><span class="tag">control_medios</span><span class="tag">conspiracion</span><span class="tag">viral · 180k</span></div></div></div>
-        <div class="gold-divider"></div>
-        <div class="af-item"><div class="af-accent aa-o"></div><div class="af-body"><div class="af-meta"><span class="badge badge-o">Peligroso · 58</span><span class="af-src">Podcast</span><span class="af-time">1 h</span></div><div class="af-text">Episodio político (45k oyentes) — segmento de 8 min vinculando Israel con "genocidio planificado". Retórica de deshumanización sistemática detectada.</div><div class="af-tags"><span class="tag">deshumanizacion</span><span class="tag">israel</span></div></div></div>
-        <div class="gold-divider"></div>
-        <div class="af-item"><div class="af-accent aa-o"></div><div class="af-body"><div class="af-meta"><span class="badge badge-o">Peligroso · 52</span><span class="af-src">Telegram</span><span class="af-time">2 h</span></div><div class="af-text">Canal con 8,200 miembros difundiendo los Protocolos de los Sabios de Sión como documento actual. Patrón de difusión coordinada confirmado.</div><div class="af-tags"><span class="tag">desinformacion</span><span class="tag">coordinado</span></div></div></div>
-        <div class="gold-divider"></div>
-        <div class="af-item"><div class="af-accent aa-g"></div><div class="af-body"><div class="af-meta"><span class="badge badge-g">Regular · 22</span><span class="af-src">Prensa</span><span class="af-time">4 h</span></div><div class="af-text">Opinión crítica de política exterior israelí. Sin tropos antisemitas confirmados. Monitoreo pasivo activado automáticamente.</div><div class="af-tags"><span class="tag">critica_politica</span><span class="tag">bajo_alcance</span></div></div></div>
+  return (
+    <div>
+      {/* KPIs principales */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 12, marginBottom: 28 }}>
+        <KPICard label="Total alumnos" value={num(totAlumnos)} sub={`Ciclo ${ciclo}`} />
+        <KPICard label="Ingreso real" value={fmt(totReal)} sub={`${pct(pctCaptacion)} de captación`} />
+        <KPICard label="Ingreso teórico" value={fmt(totTeorico)} sub="Colegiaturas + conceptos" />
+        <KPICard label="Brecha no captada" value={fmt(brecha)} sub="Gap financiero" accent="#E05555" />
+        <KPICard label="Subsidio becas" value={fmt(totSubsidio)} sub="Solo becas, excl. desc. financiero" accent={COLORS.accent} />
+        <KPICard label="Desc. financiero" value={fmt(totDescFin)} sub="No es ingreso al colegio" />
+        <KPICard label="% Becados" value={pct(pctBecados)} sub={`${num(totBecados)} alumnos`} />
+        <KPICard label="% Beca vs ingreso" value={pct(pctSubsidioVsReal)} sub="Subsidio / ingreso real" accent={COLORS.accent} />
       </div>
 
-      <div class="gcol">
-        <div class="card">
-          <div class="card-head"><div class="card-title">Distribución</div><div class="card-sub">HOY · 23 INCIDENTES</div></div>
-          <div class="donut-wrap">
-            <svg width="76" height="76" style="transform:rotate(-90deg);flex-shrink:0">
-              <circle cx="38" cy="38" r="30" fill="none" stroke="var(--bg3)" stroke-width="10"/>
-              <circle cx="38" cy="38" r="30" fill="none" stroke="#C0392B" stroke-width="10" stroke-dasharray="29 159" stroke-dashoffset="0"/>
-              <circle cx="38" cy="38" r="30" fill="none" stroke="#D4651A" stroke-width="10" stroke-dasharray="53 135" stroke-dashoffset="-29"/>
-              <circle cx="38" cy="38" r="30" fill="none" stroke="#1A7A4A" stroke-width="10" stroke-dasharray="95 93" stroke-dashoffset="-82"/>
-            </svg>
-            <div class="d-legend">
-              <div class="dl-i"><div class="dl-dot" style="background:var(--red)"></div><span class="dl-lbl">Muy peligroso</span><span class="dl-val">4 · 17%</span></div>
-              <div class="dl-i"><div class="dl-dot" style="background:var(--orange)"></div><span class="dl-lbl">Peligroso</span><span class="dl-val">8 · 35%</span></div>
-              <div class="dl-i"><div class="dl-dot" style="background:var(--green)"></div><span class="dl-lbl">Regular</span><span class="dl-val">11 · 48%</span></div>
-            </div>
-          </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 20 }}>
+        {/* Ingresos académicos */}
+        <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: 20 }}>
+          <SectionTitle>Distribución — ingresos académicos</SectionTitle>
+          {Object.entries(conceptosAcad).sort((a, b) => b[1] - a[1]).map(([k, v]) => (
+            <BarH key={k} label={k} value={v} max={totReal} color={COLORS.accent} right={fmt(v)} />
+          ))}
         </div>
 
-        <div class="card">
-          <div class="card-head"><div class="card-title">Score máximo por plataforma</div></div>
-          <div class="card-body">
-            <div class="gauge-row">
-              <div class="gauge-item"><div class="gauge-circle gc-r">87</div><div class="gauge-lbl">Twitter</div></div>
-              <div class="gauge-item"><div class="gauge-circle gc-o">58</div><div class="gauge-lbl">Podcast</div></div>
-              <div class="gauge-item"><div class="gauge-circle gc-g">22</div><div class="gauge-lbl">Prensa</div></div>
-            </div>
+        {/* Conceptos triangulados */}
+        <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: 20 }}>
+          <SectionTitle>Conceptos triangulados (no ingreso del colegio)</SectionTitle>
+          <div style={{ fontSize: 11, color: COLORS.textMuted, marginBottom: 12 }}>
+            El colegio solo cobra y transfiere al proveedor
           </div>
+          {Object.entries(conceptosTriang).sort((a, b) => b[1] - a[1]).map(([k, v]) => (
+            <BarH key={k} label={k} value={v} max={Math.max(...Object.values(conceptosTriang))} color="#5B8DEF" right={fmt(v)} />
+          ))}
         </div>
       </div>
-    </div>
 
-    <div class="g2">
-      <div class="card">
-        <div class="card-head"><div class="card-title">Incidentes por fuente</div><div class="card-sub">ÚLTIMOS 30 DÍAS</div></div>
-        <div class="card-body">
-          <div class="bar-list">
-            <div class="bar-row"><span class="bl-lbl">Twitter/X</span><div class="bl-track"><div class="bl-fill" style="width:85%;background:var(--red)"></div></div><span class="bl-num">142</span></div>
-            <div class="bar-row"><span class="bl-lbl">Telegram</span><div class="bl-track"><div class="bl-fill" style="width:59%;background:var(--orange)"></div></div><span class="bl-num">98</span></div>
-            <div class="bar-row"><span class="bl-lbl">Facebook</span><div class="bl-track"><div class="bl-fill" style="width:44%;background:var(--orange)"></div></div><span class="bl-num">74</span></div>
-            <div class="bar-row"><span class="bl-lbl">Podcasts</span><div class="bl-track"><div class="bl-fill" style="width:29%;background:var(--gold)"></div></div><span class="bl-num">49</span></div>
-            <div class="bar-row"><span class="bl-lbl">Prensa Digital</span><div class="bl-track"><div class="bl-fill" style="width:22%;background:var(--gold)"></div></div><span class="bl-num">36</span></div>
-            <div class="bar-row"><span class="bl-lbl">YouTube</span><div class="bl-track"><div class="bl-fill" style="width:14%;background:var(--blue)"></div></div><span class="bl-num">24</span></div>
-            <div class="bar-row"><span class="bl-lbl">Blogs</span><div class="bl-track"><div class="bl-fill" style="width:10%;background:var(--blue2)"></div></div><span class="bl-num">17</span></div>
-          </div>
-        </div>
-      </div>
-      <div class="card">
-        <div class="card-head"><div class="card-title">Actividad — 30 días</div></div>
-        <div class="card-body">
-          <div class="hm-grid" id="heatmap"></div>
-          <div style="display:flex;gap:10px;margin-top:9px;flex-wrap:wrap">
-            <div class="dl-i"><div class="dl-dot" style="background:var(--bg3);border:1px solid var(--border2)"></div><span style="font-size:9px;color:var(--muted)">Sin incidentes</span></div>
-            <div class="dl-i"><div class="dl-dot" style="background:rgba(26,122,74,.5)"></div><span style="font-size:9px;color:var(--muted)">Regular</span></div>
-            <div class="dl-i"><div class="dl-dot" style="background:rgba(212,101,26,.6)"></div><span style="font-size:9px;color:var(--muted)">Peligroso</span></div>
-            <div class="dl-i"><div class="dl-dot" style="background:rgba(192,57,43,.75)"></div><span style="font-size:9px;color:var(--muted)">Crítico</span></div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ══════ ANALYZER ══════ -->
-  <div id="p-predict" class="panel">
-    <div class="kpi-row">
-      <div class="kpi kpi-o"><div class="kpi-lbl">// Riesgo 48-72h</div><div class="kpi-val kv-o">Alto</div><div class="kpi-delta">Probabilidad: <strong>71%</strong></div></div>
-      <div class="kpi kpi-gold"><div class="kpi-lbl">// Riesgo mensual</div><div class="kpi-val kv-gold">Medio</div><div class="kpi-delta">Tendencia ascendente</div></div>
-      <div class="kpi kpi-b"><div class="kpi-lbl">// Narrativa emergente</div><div class="kpi-val kv-b" style="font-size:16px;padding-top:6px">Control<br>de medios</div><div class="kpi-delta">+34% vs semana pasada</div></div>
-      <div class="kpi kpi-g"><div class="kpi-lbl">// Confianza del modelo</div><div class="kpi-val kv-g">73%</div><div class="kpi-delta">Basado en 8 meses de datos</div></div>
-    </div>
-
-    <div class="horizon-tabs">
-      <div class="ht active" onclick="switchHorizon(0,this)">Corto plazo - 48-72h</div>
-      <div class="ht" onclick="switchHorizon(1,this)">Mediano plazo - Este mes</div>
-      <div class="ht" onclick="switchHorizon(2,this)">Largo plazo - Tendencias</div>
-    </div>
-
-    <div class="ht-content active" id="ht-0">
-      <div class="g21">
-        <div class="gcol">
-          <div class="card">
-            <div class="card-head"><div class="card-title">Alertas predictivas - Proximas 72 horas</div><div class="card-sub">MODELO LSTM · CONF. 71%</div></div>
-            <div class="card-body" style="display:flex;flex-direction:column;gap:0;padding:0">
-              <div class="pred-card pc-r" style="border-radius:0;border:none;border-bottom:1px solid var(--border)">
-                <div class="pred-head"><div class="pred-title">Pico de narrativa "Control de medios"</div><span class="badge badge-r">Critico</span></div>
-                <div class="pred-meta"><span class="badge badge-o">Twitter/X</span><span class="badge badge-o">Telegram</span><span style="font-family:'Source Code Pro',monospace;font-size:8.5px;color:var(--muted)">Proyectado: Miercoles 14:00-20:00</span></div>
-                <div class="pred-body">El modelo detecta un patron de preparacion: 3 cuentas monitoreadas incrementaron su actividad en 240% en las ultimas 18h.</div>
-                <div class="pred-confidence"><span class="pc-label">Confianza</span><div class="pc-bar"><div class="pc-fill" style="width:78%;background:var(--red)"></div></div><span class="pc-pct">78%</span></div>
-              </div>
-              <div class="pred-card pc-o" style="border-radius:0;border:none;border-bottom:1px solid var(--border)">
-                <div class="pred-head"><div class="pred-title">Amplificacion de contenido en podcast politico</div><span class="badge badge-o">Peligroso</span></div>
-                <div class="pred-meta"><span class="badge badge-b">Podcast</span><span style="font-family:'Source Code Pro',monospace;font-size:8.5px;color:var(--muted)">Proyectado: Jueves por la manana</span></div>
-                <div class="pred-body">Analisis de programacion detecta episodio de alto riesgo. En historico, 67% de episodios similares incluyeron tropos antisemitas.</div>
-                <div class="pred-confidence"><span class="pc-label">Confianza</span><div class="pc-bar"><div class="pc-fill" style="width:67%;background:var(--orange)"></div></div><span class="pc-pct">67%</span></div>
-              </div>
-              <div class="pred-card pc-gold" style="border-radius:0;border:none">
-                <div class="pred-head"><div class="pred-title">Activacion de narrativa negacionista</div><span class="badge badge-gold">Vigilancia</span></div>
-                <div class="pred-meta"><span class="badge badge-b">Facebook</span><span style="font-family:'Source Code Pro',monospace;font-size:8.5px;color:var(--muted)">Proyectado: Viernes todo el dia</span></div>
-                <div class="pred-body">Patron historico: en fechas conmemorativas cercanas, el volumen de negacionismo en grupos abiertos aumenta 3.2x.</div>
-                <div class="pred-confidence"><span class="pc-label">Confianza</span><div class="pc-bar"><div class="pc-fill" style="width:62%;background:var(--gold)"></div></div><span class="pc-pct">62%</span></div>
-              </div>
-            </div>
-          </div>
-
-          <div class="card">
-            <div class="card-head"><div class="card-title">Recomendaciones de accion inmediata</div><div class="card-sub">PLAYBOOK PREDICTIVO</div></div>
-            <div class="card-body" style="display:flex;flex-direction:column;gap:8px">
-              <div style="background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:10px;border-left:3px solid var(--red)">
-                <div style="display:flex;align-items:center;gap:7px;margin-bottom:4px"><span class="badge badge-b">HOY</span><span style="font-size:11px;font-weight:600;color:var(--text2)">Publicar contenido educativo proactivo</span></div>
-                <div style="font-size:10px;color:var(--dim);line-height:1.6">Publicar hilo con contexto historico del tropo antes del pico proyectado para reducir su alcance.</div>
-              </div>
-              <div style="background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:10px;border-left:3px solid var(--orange)">
-                <div style="display:flex;align-items:center;gap:7px;margin-bottom:4px"><span class="badge badge-gold">MANANA</span><span style="font-size:11px;font-weight:600;color:var(--text2)">Contactar periodistas aliados</span></div>
-                <div style="font-size:10px;color:var(--dim);line-height:1.6">Adelantar declaracion con citas verificadas para cobertura de contexto antes de la amplificacion.</div>
-              </div>
-              <div style="background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:10px;border-left:3px solid var(--gold)">
-                <div style="display:flex;align-items:center;gap:7px;margin-bottom:4px"><span class="badge badge-b">VIERNES</span><span style="font-size:11px;font-weight:600;color:var(--text2)">Campana de memoria y educacion</span></div>
-                <div style="font-size:10px;color:var(--dim);line-height:1.6">Activar piezas preventivas en Facebook y WhatsApp en audiencias con mayor probabilidad de exposicion.</div>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div class="gcol">
-          <div class="card">
-            <div class="card-head"><div class="card-title">Indicador de riesgo</div><div class="card-sub">TIEMPO REAL</div></div>
-            <div class="card-body">
-              <div style="text-align:center;margin-bottom:12px"><div style="font-family:'Playfair Display',serif;font-size:42px;font-weight:700;color:var(--orange);line-height:1">71%</div><div style="font-family:'Source Code Pro',monospace;font-size:9px;color:var(--muted);margin-top:3px">PROBABILIDAD DE PICO · 48H</div></div>
-              <div class="risk-meter"><div class="risk-needle" style="left:71%"></div></div>
-              <div class="risk-labels"><span>Bajo</span><span>Medio</span><span>Alto</span><span>Critico</span></div>
-            </div>
-          </div>
-          <div class="card">
-            <div class="card-head"><div class="card-title">Pulso de narrativas</div><div class="card-sub">ULTIMAS 24H</div></div>
-            <div class="card-body" style="padding:10px 14px">
-              <div class="narr-list">
-                <div class="narr-item"><div class="narr-icon" style="background:var(--red2)">▲</div><div style="flex:1;min-width:0"><div class="narr-name">Control de medios</div><div class="narr-trend trend-up">+34% velocidad</div><div class="narr-bar-wrap" style="margin-top:4px"><div class="narr-bar-track"><div class="narr-bar-fill" style="width:88%;background:var(--red)"></div></div></div></div><div class="narr-pct" style="color:var(--red)">88</div></div>
-                <div class="narr-item"><div class="narr-icon" style="background:var(--orange2)">▲</div><div style="flex:1;min-width:0"><div class="narr-name">Geopolitico</div><div class="narr-trend trend-up">+18% velocidad</div><div class="narr-bar-wrap" style="margin-top:4px"><div class="narr-bar-track"><div class="narr-bar-fill" style="width:62%;background:var(--orange)"></div></div></div></div><div class="narr-pct" style="color:var(--orange)">62</div></div>
-                <div class="narr-item"><div class="narr-icon" style="background:var(--goldl)">■</div><div style="flex:1;min-width:0"><div class="narr-name">Negacionismo</div><div class="narr-trend trend-eq">Estable</div><div class="narr-bar-wrap" style="margin-top:4px"><div class="narr-bar-track"><div class="narr-bar-fill" style="width:35%;background:var(--gold)"></div></div></div></div><div class="narr-pct" style="color:var(--gold)">35</div></div>
-                <div class="narr-item"><div class="narr-icon" style="background:var(--green2)">▼</div><div style="flex:1;min-width:0"><div class="narr-name">Religioso</div><div class="narr-trend trend-dn">-8% velocidad</div><div class="narr-bar-wrap" style="margin-top:4px"><div class="narr-bar-track"><div class="narr-bar-fill" style="width:18%;background:var(--green)"></div></div></div></div><div class="narr-pct" style="color:var(--green)">18</div></div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="ht-content" id="ht-1">
-      <div class="g2">
-        <div class="card">
-          <div class="card-head"><div class="card-title">Calendario de riesgo - Abril 2026</div><div class="card-sub">SERIES DE TIEMPO</div></div>
-          <div class="card-body">
-            <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-bottom:5px">
-              <div class="cal-day-lbl">L</div><div class="cal-day-lbl">M</div><div class="cal-day-lbl">Mi</div><div class="cal-day-lbl">J</div><div class="cal-day-lbl">V</div><div class="cal-day-lbl">S</div><div class="cal-day-lbl">D</div>
-            </div>
-            <div class="cal-grid" id="cal-grid"></div>
-          </div>
-        </div>
-        <div class="card">
-          <div class="card-head"><div class="card-title">Eventos de riesgo del mes</div></div>
-          <div class="card-body" style="display:flex;flex-direction:column;gap:8px">
-            <div style="background:var(--red2);border:1px solid rgba(192,57,43,0.2);border-radius:5px;padding:10px"><div style="display:flex;align-items:center;gap:7px;margin-bottom:4px"><span class="badge badge-r">7 Abr</span><span style="font-size:11px;font-weight:600;color:var(--text2)">Yom HaShoa</span></div><div style="font-size:10px;color:var(--dim);line-height:1.5">Historicamente eleva el riesgo de negacionismo. Recomendacion: campana preventiva desde dos dias antes.</div></div>
-            <div style="background:var(--orange2);border:1px solid rgba(212,101,26,0.2);border-radius:5px;padding:10px"><div style="display:flex;align-items:center;gap:7px;margin-bottom:4px"><span class="badge badge-o">14 Abr</span><span style="font-size:11px;font-weight:600;color:var(--text2)">Contexto politico nacional</span></div><div style="font-size:10px;color:var(--dim);line-height:1.5">Debate legislativo sobre medios. Riesgo medio-alto para tropos de control informativo.</div></div>
-            <div style="background:var(--goldl);border:1px solid var(--border3);border-radius:5px;padding:10px"><div style="display:flex;align-items:center;gap:7px;margin-bottom:4px"><span class="badge badge-gold">21 Abr</span><span style="font-size:11px;font-weight:600;color:var(--text2)">Aniversario historico</span></div><div style="font-size:10px;color:var(--dim);line-height:1.5">Aumenta narrativas geopoliticas codificadas. Monitoreo reforzado desde el dia 18.</div></div>
-          </div>
-        </div>
-      </div>
-      <div class="card mb12">
-        <div class="card-head"><div class="card-title">Plan preventivo del mes</div><div class="card-sub">GENERADO POR IA</div></div>
-        <div class="card-body">
-          <table class="impact-table">
-            <thead><tr><th>Fecha</th><th>Campana</th><th>Canal</th><th>Objetivo</th><th>Estado</th></tr></thead>
-            <tbody>
-              <tr><td>5 Abr</td><td style="font-weight:600;color:var(--text2)">Semana de la Memoria</td><td><span class="badge badge-b">Twitter/Facebook</span></td><td>Contra-narrativa</td><td><span class="badge badge-gold">Planificada</span></td></tr>
-              <tr><td>7 Abr</td><td style="font-weight:600;color:var(--text2)">Yom HaShoa Digital</td><td><span class="badge badge-b">Instagram/YouTube</span></td><td>Educacion y testimonio</td><td><span class="badge badge-g">Lista</span></td></tr>
-              <tr><td>12 Abr</td><td style="font-weight:600;color:var(--text2)">Serie "El tropo explicado"</td><td><span class="badge badge-b">Twitter/Podcast</span></td><td>Desmitificar narrativa</td><td><span class="badge badge-o">En desarrollo</span></td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-
-    <div class="ht-content" id="ht-2">
-      <div class="g2">
-        <div class="card">
-          <div class="card-head"><div class="card-title">Correlacion eventos-picos</div></div>
-          <div class="card-body" style="display:flex;flex-direction:column;gap:7px">
-            <div style="display:flex;align-items:center;gap:9px;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:5px"><div style="font-family:'Playfair Display',serif;font-size:20px;font-weight:700;color:var(--red);flex-shrink:0">r=.87</div><div><div style="font-size:11px;font-weight:600;color:var(--text2)">Conflicto internacional</div><div style="font-size:10px;color:var(--dim)">Pico en 48-72h</div></div></div>
-            <div style="display:flex;align-items:center;gap:9px;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:5px"><div style="font-family:'Playfair Display',serif;font-size:20px;font-weight:700;color:var(--orange);flex-shrink:0">r=.71</div><div><div style="font-size:11px;font-weight:600;color:var(--text2)">Debate sobre medios</div><div style="font-size:10px;color:var(--dim)">Activacion en 24h</div></div></div>
-            <div style="display:flex;align-items:center;gap:9px;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:5px"><div style="font-family:'Playfair Display',serif;font-size:20px;font-weight:700;color:var(--gold);flex-shrink:0">r=.68</div><div><div style="font-size:11px;font-weight:600;color:var(--text2)">Fechas conmemorativas</div><div style="font-size:10px;color:var(--dim)">Patron anual</div></div></div>
-          </div>
-        </div>
-        <div class="card">
-          <div class="card-head"><div class="card-title">Proyeccion de tendencia 2026</div></div>
-          <div class="card-body">
-            <div id="tl-long-wrap" style="height:200px"></div>
-            <div style="font-size:10px;color:var(--muted);margin-top:8px;font-style:italic;font-family:'Source Code Pro',monospace">-- Proyeccion · -- Historico</div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div id="p-campaigns" class="panel">
-    <div class="g21 mb12">
-      <div class="card">
-        <div class="card-head">
-          <div class="card-title">Motor de Campañas - Generador IA</div>
-          <div class="card-sub">CONTENIDO PREVENTIVO Y EDUCATIVO</div>
-        </div>
-        <div class="card-body">
-          <div class="gen-wrap">
-            <div class="gen-controls">
-              <div>
-                <div class="inp-lbl">// Tipo de campaña</div>
-                <select class="sel" id="camp-type">
-                  <option value="educacion">Educación sobre tropos antisemitas</option>
-                  <option value="memoria">Memoria y testimonio</option>
-                  <option value="desmentido">Desmentido de narrativa específica</option>
-                  <option value="solidaridad">Llamado a solidaridad intercomunitaria</option>
-                </select>
-              </div>
-              <div>
-                <div class="inp-lbl">// Narrativa objetivo</div>
-                <select class="sel" id="camp-narrative">
-                  <option>Control de medios</option>
-                  <option>Negacionismo del Holocausto</option>
-                  <option>Conspiración económica</option>
-                  <option>Geopolítico codificado</option>
-                </select>
-              </div>
-              <div>
-                <div class="inp-lbl">// Plataforma y formato</div>
-                <select class="sel" id="camp-platform">
-                  <option>Twitter/X - Hilo (6-8 tweets)</option>
-                  <option>Instagram - Carrusel (8 slides)</option>
-                  <option>Facebook - Post largo</option>
-                  <option>WhatsApp - Mensaje comunitario</option>
-                </select>
-              </div>
-              <div>
-                <div class="inp-lbl">// Audiencia objetivo</div>
-                <select class="sel" id="camp-audience">
-                  <option>Público general México</option>
-                  <option>Jóvenes 18-30 años</option>
-                  <option>Periodistas y medios</option>
-                  <option>Líderes comunitarios</option>
-                </select>
-              </div>
-              <div>
-                <div class="inp-lbl">// Contexto adicional</div>
-                <textarea class="ta" id="camp-context" style="height:70px" placeholder="Describe el evento o contexto específico..."></textarea>
-              </div>
-              <div>
-                <div class="inp-lbl">// Tono</div>
-                <div class="chip-row" id="tone-chips">
-                  <div class="chip selected" onclick="selectTone(this)">Educativo</div>
-                  <div class="chip" onclick="selectTone(this)">Urgente</div>
-                  <div class="chip" onclick="selectTone(this)">Empático</div>
-                  <div class="chip" onclick="selectTone(this)">Institucional</div>
+      {/* Distribución por sector */}
+      <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: 20, marginBottom: 20 }}>
+        <SectionTitle>Distribución por sector educativo</SectionTitle>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16 }}>
+          {data.sectores.map((s, i) => {
+            const colors = [COLORS.accent, "#5B8DEF", "#4CAF6E", "#E07A30"];
+            return (
+              <div key={s.nombre} style={{ borderLeft: `3px solid ${colors[i]}`, paddingLeft: 14 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: colors[i], letterSpacing: 1, marginBottom: 10 }}>{s.nombre}</div>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                  <span style={{ fontSize: 11, color: COLORS.textMuted }}>Alumnos</span>
+                  <span style={{ fontSize: 12, color: COLORS.text, fontFamily: "DM Mono, monospace" }}>{num(s.alumnos)}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                  <span style={{ fontSize: 11, color: COLORS.textMuted }}>Ingreso real</span>
+                  <span style={{ fontSize: 12, color: COLORS.text, fontFamily: "DM Mono, monospace" }}>{fmt(s.ingReal)}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ fontSize: 11, color: COLORS.textMuted }}>Subsidio becas</span>
+                  <span style={{ fontSize: 12, color: "#E05555", fontFamily: "DM Mono, monospace" }}>{fmt(s.subsidio)}</span>
                 </div>
               </div>
-              <button class="gen-btn" id="gen-btn" onclick="generateCampaign()">
-                <span id="gen-btn-txt">Generar contenido de campaña</span>
-                <div class="spin" id="gen-spin" style="display:none"></div>
-              </button>
-            </div>
-
-            <div>
-              <div class="inp-lbl">// Contenido generado</div>
-              <div id="gen-placeholder" class="gen-placeholder">El contenido aparecerá aquí</div>
-              <div id="gen-result" class="gen-result">
-                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-                  <div style="font-family:'Source Code Pro',monospace;font-size:9px;color:var(--muted);letter-spacing:1px">CONTENIDO GENERADO</div>
-                  <button class="btn btn-primary" style="padding:5px 10px;font-size:10px" onclick="copyContent()">Copiar</button>
-                </div>
-                <div id="gen-content" style="font-size:12px;color:var(--text2);line-height:1.8;white-space:pre-wrap;max-height:380px;overflow-y:auto"></div>
-                <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">
-                  <div style="font-family:'Source Code Pro',monospace;font-size:8px;color:var(--muted);margin-bottom:6px;letter-spacing:1px">MÉTRICAS PROYECTADAS</div>
-                  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px" id="camp-proj-metrics"></div>
-                </div>
-              </div>
-            </div>
-          </div>
+            );
+          })}
         </div>
       </div>
 
-      <div class="gcol">
-        <div class="card">
-          <div class="card-head"><div class="card-title">Campañas activas</div><div class="card-sub">ESTE MES</div></div>
-          <div style="padding:11px 14px;border-bottom:1px solid var(--border)">
-            <div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:5px">Semana de la Memoria</div>
-            <div class="sb-track"><div class="sb-fill" style="width:62%;background:var(--green)"></div></div>
-            <div style="font-family:'Source Code Pro',monospace;font-size:8px;color:var(--muted);margin-top:3px">62% completada</div>
-          </div>
-          <div style="padding:11px 14px">
-            <div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:5px">Serie: El tropo explicado</div>
-            <div class="sb-track"><div class="sb-fill" style="width:30%;background:var(--orange)"></div></div>
-            <div style="font-family:'Source Code Pro',monospace;font-size:8px;color:var(--muted);margin-top:3px">30% completada</div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div id="p-impact" class="panel">
-    <div class="kpi-row">
-      <div class="kpi kpi-g"><div class="kpi-lbl">// Incidentes evitados (est.)</div><div class="kpi-val kv-g">38</div><div class="kpi-delta">Último mes</div></div>
-      <div class="kpi kpi-b"><div class="kpi-lbl">// Alcance de campañas</div><div class="kpi-val kv-b">420K</div><div class="kpi-delta">Personas alcanzadas</div></div>
-      <div class="kpi kpi-gold"><div class="kpi-lbl">// Efectividad promedio</div><div class="kpi-val kv-gold">74%</div><div class="kpi-delta">Reducción post-campaña</div></div>
-      <div class="kpi kpi-r"><div class="kpi-lbl">// Tiempo medio respuesta</div><div class="kpi-val kv-r">58s</div><div class="kpi-delta">Detección a alerta</div></div>
-    </div>
-    <div class="g2">
-      <div class="card">
-        <div class="card-head"><div class="card-title">Efectividad por tipo de campaña</div><div class="card-sub">ÚLTIMOS 6 MESES</div></div>
-        <div class="card-body">
-          <table class="impact-table">
-            <thead><tr><th>Tipo</th><th>Lanzadas</th><th>Alcance</th><th>Reducción</th><th>Efect.</th></tr></thead>
-            <tbody>
-              <tr><td style="font-weight:600;color:var(--text2)">Educación sobre tropos</td><td>8</td><td>45,000</td><td>-31%</td><td><span class="badge badge-g">82%</span></td></tr>
-              <tr><td style="font-weight:600;color:var(--text2)">Desmentidos directos</td><td>12</td><td>28,000</td><td>-24%</td><td><span class="badge badge-g">74%</span></td></tr>
-              <tr><td style="font-weight:600;color:var(--text2)">Memoria y testimonio</td><td>5</td><td>92,000</td><td>-18%</td><td><span class="badge badge-o">65%</span></td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-      <div class="card">
-        <div class="card-head"><div class="card-title">Reducción de amplificación</div><div class="card-sub">VENTANA 72H</div></div>
-        <div class="card-body">
-          <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-            <div style="font-family:'Playfair Display',serif;font-size:28px;font-weight:700;color:var(--red);flex-shrink:0">-74%</div>
-            <div style="font-size:11px;color:var(--dim)">Cuando la campaña se publica antes del pico proyectado.</div>
-          </div>
-          <div style="display:flex;align-items:center;gap:10px">
-            <div style="font-family:'Playfair Display',serif;font-size:28px;font-weight:700;color:var(--orange);flex-shrink:0">-42%</div>
-            <div style="font-size:11px;color:var(--dim)">Cuando la respuesta es reactiva durante el pico.</div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div id="p-analyzer" class="panel">
-    <div class="card">
-      <div class="card-head">
-        <div style="display:flex;align-items:center;gap:9px">
-          <div class="card-title">Analizador de Contenido — IA en Vivo</div>
-          <span class="badge badge-b">Claude Sonnet</span>
-        </div>
-        <div class="card-sub">DETECCIÓN NLP · ESPAÑOL MEXICANO · TIEMPO REAL</div>
-      </div>
-      <div class="card-body">
-        <div class="az-wrap">
+      {/* LTV */}
+      <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: 20 }}>
+        <SectionTitle>LTV — Costo total por familia (Kínder 1 → Prepa 3)</SectionTitle>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr) 2fr", gap: 16 }}>
           <div>
-            <div class="inp-lbl">// Muestras de prueba rápida</div>
-            <div class="samples">
-              <div class="smp" onclick="loadSample(0)">Crítico: Control de medios</div>
-              <div class="smp" onclick="loadSample(1)">Peligroso: Deshumanización</div>
-              <div class="smp" onclick="loadSample(2)">Regular: Crítica política</div>
-              <div class="smp" onclick="loadSample(3)">Negacionismo histórico</div>
+            <div style={{ fontSize: 10, color: COLORS.textMuted, marginBottom: 6 }}>LTV Nominal</div>
+            <div style={{ fontSize: 22, fontFamily: "DM Mono, monospace", color: COLORS.accent }}>{fmt(ltv.ltvNominal)}</div>
+            <div style={{ fontSize: 10, color: COLORS.textMuted, marginTop: 4 }}>15 años en pesos corrientes</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 10, color: COLORS.textMuted, marginBottom: 6 }}>LTV Valor Presente</div>
+            <div style={{ fontSize: 22, fontFamily: "DM Mono, monospace", color: COLORS.text }}>{fmt(ltv.ltvPV)}</div>
+            <div style={{ fontSize: 10, color: COLORS.textMuted, marginTop: 4 }}>Tasa de descuento {pct(ltv.tasaDescuento)}</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 10, color: COLORS.textMuted, marginBottom: 6 }}>Costo anual promedio red</div>
+            <div style={{ fontSize: 22, fontFamily: "DM Mono, monospace", color: COLORS.text }}>{fmt(ltv.costoAnualPromedio)}</div>
+          </div>
+          <div>
+            {ltv.desglose.map((d) => (
+              <div key={d.nivel} style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                <span style={{ fontSize: 11, color: COLORS.textMuted }}>{d.nivel}</span>
+                <span style={{ fontSize: 12, fontFamily: "DM Mono, monospace", color: COLORS.text }}>{fmt(d.costo)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── TAB ESCUELAS ─────────────────────────────────────────────────────────────
+function TabEscuelas({ data, ciclo }) {
+  const [selected, setSelected] = useState(null);
+  const escuelas = data.escuelas.filter((e) => !ciclo || e.ciclo === ciclo);
+  const escuela = selected ? escuelas.find((e) => e.nombre === selected) : null;
+
+  return (
+    <div>
+      {/* Tabla comparativa */}
+      <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, marginBottom: 20, overflow: "auto" }}>
+        <SectionTitle style={{ padding: "16px 20px 0" }}>
+          <div style={{ padding: "16px 20px 0" }}>Tabla comparativa de escuelas — Ciclo {ciclo}</div>
+        </SectionTitle>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+          <thead>
+            <tr style={{ borderBottom: `1px solid ${COLORS.border}` }}>
+              {["Escuela", "Alumnos", "Ing. Teórico", "Ing. Real", "% Captación", "Subsidio Becas", "% Subsidio", "Becados", "% Becados", "Abreijim", "Colaboradores", "Desc. Fin."].map((h) => (
+                <th key={h} style={{ padding: "10px 14px", textAlign: "left", fontSize: 9, letterSpacing: 1.5, color: COLORS.textMuted, textTransform: "uppercase", whiteSpace: "nowrap" }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {escuelas.map((e) => {
+              const cap = e.ingTeorico > 0 ? e.ingReal / e.ingTeorico : 0;
+              const pctSub = e.ingReal > 0 ? e.subsidio / e.ingReal : 0;
+              const color = SCHOOL_COLORS[e.nombre] || COLORS.accent;
+              return (
+                <tr key={e.nombre}
+                  onClick={() => setSelected(selected === e.nombre ? null : e.nombre)}
+                  style={{ borderBottom: `1px solid ${COLORS.border}`, cursor: "pointer", background: selected === e.nombre ? "#1E1E1E" : "transparent" }}
+                >
+                  <td style={{ padding: "12px 14px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <div style={{ width: 8, height: 8, borderRadius: "50%", background: color, flexShrink: 0 }} />
+                      <span style={{ color: COLORS.text, fontWeight: 500 }}>{e.nombre}</span>
+                    </div>
+                  </td>
+                  <td style={{ padding: "12px 14px", fontFamily: "DM Mono, monospace", color: COLORS.text }}>{num(e.alumnos)}</td>
+                  <td style={{ padding: "12px 14px", fontFamily: "DM Mono, monospace", color: COLORS.textSub }}>{fmt(e.ingTeorico)}</td>
+                  <td style={{ padding: "12px 14px", fontFamily: "DM Mono, monospace", color: COLORS.text }}>{fmt(e.ingReal)}</td>
+                  <td style={{ padding: "12px 14px" }}>
+                    <span style={{ fontFamily: "DM Mono, monospace", color: cap < 0.80 ? "#E05555" : cap < 0.90 ? COLORS.accent : "#4CAF6E" }}>{pct(cap)}</span>
+                  </td>
+                  <td style={{ padding: "12px 14px", fontFamily: "DM Mono, monospace", color: "#E05555" }}>{fmt(e.subsidio)}</td>
+                  <td style={{ padding: "12px 14px", fontFamily: "DM Mono, monospace", color: COLORS.textSub }}>{pct(pctSub)}</td>
+                  <td style={{ padding: "12px 14px", fontFamily: "DM Mono, monospace", color: COLORS.text }}>{num(e.becados)}</td>
+                  <td style={{ padding: "12px 14px", fontFamily: "DM Mono, monospace", color: COLORS.textSub }}>{pct(e.pctBecados)}</td>
+                  <td style={{ padding: "12px 14px", fontFamily: "DM Mono, monospace", color: COLORS.text }}>{num(e.abreijim)}</td>
+                  <td style={{ padding: "12px 14px", fontFamily: "DM Mono, monospace", color: COLORS.text }}>{num(e.colaboradores)}</td>
+                  <td style={{ padding: "12px 14px", fontFamily: "DM Mono, monospace", color: COLORS.textSub }}>{fmt(e.descFinanciero)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Detalle de escuela seleccionada */}
+      {escuela && (
+        <div style={{ background: COLORS.surface, border: `1px solid ${SCHOOL_COLORS[escuela.nombre] || COLORS.accent}`, borderRadius: 8, padding: 20 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: SCHOOL_COLORS[escuela.nombre] || COLORS.accent, marginBottom: 16 }}>
+            {escuela.nombre} — Desglose de ingresos por concepto
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+            <div>
+              <SectionTitle>Ingresos académicos</SectionTitle>
+              {(escuela.conceptos || []).filter((c) => !c.triangulado).map((c) => (
+                <div key={c.nombre} style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: `1px solid ${COLORS.border}` }}>
+                  <span style={{ fontSize: 12, color: COLORS.textSub }}>{c.nombre}</span>
+                  <span style={{ fontSize: 12, fontFamily: "DM Mono, monospace", color: COLORS.text }}>{fmt(c.monto)}</span>
+                </div>
+              ))}
             </div>
-            <div class="inp-lbl">// Texto a analizar</div>
-            <textarea class="ta" id="az-input" placeholder="Pega aquí un tweet, fragmento de podcast, artículo o cualquier contenido a evaluar..."></textarea>
-            <div class="meta-g">
-              <div><div class="inp-lbl">// Fuente</div><select class="sel" id="src-sel"><option>Twitter / X</option><option>Telegram</option><option>Facebook</option><option>YouTube</option><option>Podcast</option><option>Prensa Digital</option><option>Blog</option></select></div>
-              <div><div class="inp-lbl">// Alcance estimado</div><select class="sel" id="reach-sel"><option>Bajo (&lt;1,000)</option><option>Medio (1k–50k)</option><option>Alto (50k–500k)</option><option>Viral (&gt;500k)</option></select></div>
+            <div>
+              <SectionTitle>Conceptos triangulados (proveedor externo)</SectionTitle>
+              {(escuela.conceptos || []).filter((c) => c.triangulado).map((c) => (
+                <div key={c.nombre} style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: `1px solid ${COLORS.border}` }}>
+                  <span style={{ fontSize: 12, color: COLORS.textMuted }}>{c.nombre}</span>
+                  <span style={{ fontSize: 12, fontFamily: "DM Mono, monospace", color: COLORS.textSub }}>{fmt(c.monto)}</span>
+                </div>
+              ))}
             </div>
-            <button class="az-btn" id="az-btn" onclick="analyze()">
-              <span id="az-btn-txt">Analizar con inteligencia artificial</span>
-              <div class="spin" id="az-spin" style="display:none"></div>
+          </div>
+        </div>
+      )}
+      {!escuela && <div style={{ fontSize: 11, color: COLORS.textMuted, textAlign: "center", padding: 16 }}>Selecciona una escuela en la tabla para ver su desglose por concepto</div>}
+    </div>
+  );
+}
+
+// ─── TAB BECAS ────────────────────────────────────────────────────────────────
+function TabBecas({ data, ciclo }) {
+  const fuentes = data.becasFuentes || [];
+  const maxMonto = Math.max(...fuentes.map((f) => f.monto));
+  const maxAlumnos = Math.max(...fuentes.map((f) => f.alumnos));
+  const escuelas = data.escuelas.filter((e) => !ciclo || e.ciclo === ciclo);
+
+  return (
+    <div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+        {/* Por fuente */}
+        <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: 20 }}>
+          <SectionTitle>Subsidio por fuente de financiamiento</SectionTitle>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 4 }}>
+            <div style={{ fontSize: 9, letterSpacing: 1.5, color: COLORS.textMuted }}>FUENTE</div>
+            <div style={{ fontSize: 9, letterSpacing: 1.5, color: COLORS.textMuted, textAlign: "right" }}>MONTO · ALUMNOS · % $</div>
+          </div>
+          {fuentes.map((f, i) => {
+            const colors = [COLORS.accent, "#5B8DEF", "#9B6EE0", "#4CAF6E", "#E07A30", "#4CAF6E"];
+            return (
+              <div key={f.fuente} style={{ marginBottom: 14 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                  <span style={{ fontSize: 12, color: COLORS.textSub }}>{f.fuente}</span>
+                  <span style={{ fontSize: 11, fontFamily: "DM Mono, monospace", color: COLORS.textMuted }}>
+                    {fmt(f.monto)} · {num(f.alumnos)} · {pct(f.pctMonto)}
+                  </span>
+                </div>
+                <div style={{ height: 3, background: COLORS.border, borderRadius: 2, marginBottom: 3 }}>
+                  <div style={{ height: 3, width: `${(f.monto / maxMonto) * 100}%`, background: colors[i % colors.length], borderRadius: 2 }} />
+                </div>
+                <div style={{ height: 3, background: COLORS.border, borderRadius: 2, opacity: 0.5 }}>
+                  <div style={{ height: 3, width: `${(f.alumnos / maxAlumnos) * 100}%`, background: colors[i % colors.length], borderRadius: 2, opacity: 0.5 }} />
+                </div>
+              </div>
+            );
+          })}
+          <div style={{ fontSize: 9, color: COLORS.textMuted, marginTop: 8 }}>Barra superior = monto · Barra inferior = alumnos</div>
+        </div>
+
+        {/* Por escuela */}
+        <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: 20 }}>
+          <SectionTitle>Subsidio becas por escuela</SectionTitle>
+          {escuelas.sort((a, b) => b.subsidio - a.subsidio).map((e) => {
+            const color = SCHOOL_COLORS[e.nombre] || COLORS.accent;
+            const maxSub = Math.max(...escuelas.map((x) => x.subsidio));
+            const maxBec = Math.max(...escuelas.map((x) => x.becados));
+            return (
+              <div key={e.nombre} style={{ marginBottom: 16 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                  <span style={{ fontSize: 12, color: COLORS.textSub }}>{e.nombre}</span>
+                  <span style={{ fontSize: 11, fontFamily: "DM Mono, monospace", color: COLORS.textMuted }}>
+                    {fmt(e.subsidio)} · {num(e.becados)} alumnos · {pct(e.pctBecados)}
+                  </span>
+                </div>
+                <div style={{ height: 4, background: COLORS.border, borderRadius: 2, marginBottom: 3 }}>
+                  <div style={{ height: 4, width: `${(e.subsidio / maxSub) * 100}%`, background: color, borderRadius: 2 }} />
+                </div>
+                <div style={{ height: 3, background: COLORS.border, borderRadius: 2, opacity: 0.5 }}>
+                  <div style={{ height: 3, width: `${(e.becados / maxBec) * 100}%`, background: color, borderRadius: 2, opacity: 0.6 }} />
+                </div>
+              </div>
+            );
+          })}
+          <div style={{ fontSize: 9, color: COLORS.textMuted, marginTop: 8 }}>Barra superior = monto beca · Barra inferior = número de alumnos becados</div>
+        </div>
+      </div>
+
+      {/* Tabla resumen becas */}
+      <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, marginTop: 20, overflow: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+          <thead>
+            <tr style={{ borderBottom: `1px solid ${COLORS.border}` }}>
+              {["Fuente", "Monto beca", "% del total $", "Alumnos", "% del total alumnos"].map((h) => (
+                <th key={h} style={{ padding: "12px 16px", textAlign: "left", fontSize: 9, letterSpacing: 1.5, color: COLORS.textMuted, textTransform: "uppercase" }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {fuentes.map((f) => (
+              <tr key={f.fuente} style={{ borderBottom: `1px solid ${COLORS.border}` }}>
+                <td style={{ padding: "11px 16px", color: COLORS.text }}>{f.fuente}</td>
+                <td style={{ padding: "11px 16px", fontFamily: "DM Mono, monospace", color: COLORS.accent }}>{fmt(f.monto)}</td>
+                <td style={{ padding: "11px 16px", fontFamily: "DM Mono, monospace", color: COLORS.textSub }}>{pct(f.pctMonto)}</td>
+                <td style={{ padding: "11px 16px", fontFamily: "DM Mono, monospace", color: COLORS.text }}>{num(f.alumnos)}</td>
+                <td style={{ padding: "11px 16px", fontFamily: "DM Mono, monospace", color: COLORS.textSub }}>{pct(f.pctAlumnos)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ─── UPLOAD PANEL ─────────────────────────────────────────────────────────────
+function UploadPanel({ onData, onClose }) {
+  const [dragging, setDragging] = useState(false);
+  const [status, setStatus] = useState("idle"); // idle | parsing | done | error
+  const [msg, setMsg] = useState("");
+  const [preview, setPreview] = useState(null);
+
+  const processFile = useCallback((file) => {
+    if (!file) return;
+    setStatus("parsing");
+    setMsg(`Procesando: ${file.name}...`);
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = new Uint8Array(e.target.result);
+        const wb = XLSX.read(data, { type: "array" });
+        const parsed = parseWorkbook(wb);
+        setPreview({ sheets: wb.SheetNames, counts: { alumnos: parsed.alumnos.length, ingresos: parsed.ingresos.length, becas: parsed.becas.length } });
+        setStatus("done");
+        setMsg(`✓ Archivo cargado. ${wb.SheetNames.length} hojas detectadas.`);
+        onData(parsed, file.name);
+      } catch (err) {
+        setStatus("error");
+        setMsg(`Error al procesar: ${err.message}`);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }, [onData]);
+
+  const onDrop = useCallback((e) => {
+    e.preventDefault();
+    setDragging(false);
+    const file = e.dataTransfer.files[0];
+    if (file) processFile(file);
+  }, [processFile]);
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 100,
+      display: "flex", alignItems: "center", justifyContent: "center",
+    }}>
+      <div style={{
+        background: COLORS.surface, border: `1px solid ${COLORS.border}`,
+        borderRadius: 12, padding: 40, width: 520, maxWidth: "90vw",
+      }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 28 }}>
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 600, color: COLORS.text }}>Actualizar base de datos</div>
+            <div style={{ fontSize: 11, color: COLORS.textMuted, marginTop: 4 }}>Carga el archivo Excel con la BBDD de Vaad Hajinuj</div>
+          </div>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: COLORS.textMuted, cursor: "pointer", fontSize: 18 }}>✕</button>
+        </div>
+
+        {/* Drop zone */}
+        <div
+          onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={onDrop}
+          style={{
+            border: `2px dashed ${dragging ? COLORS.accent : COLORS.border}`,
+            borderRadius: 8, padding: 32, textAlign: "center",
+            background: dragging ? "rgba(200,169,110,0.05)" : "transparent",
+            transition: "all 0.2s", marginBottom: 16,
+          }}
+        >
+          <div style={{ fontSize: 32, marginBottom: 12 }}>📊</div>
+          <div style={{ fontSize: 13, color: COLORS.text, marginBottom: 6 }}>Arrastra el archivo aquí</div>
+          <div style={{ fontSize: 11, color: COLORS.textMuted, marginBottom: 16 }}>o selecciónalo desde tu computadora</div>
+          <label style={{
+            background: COLORS.accent, color: "#000", fontSize: 12, fontWeight: 600,
+            padding: "8px 20px", borderRadius: 6, cursor: "pointer", letterSpacing: 0.5,
+          }}>
+            Seleccionar archivo
+            <input type="file" accept=".xlsx,.xls,.csv" style={{ display: "none" }}
+              onChange={(e) => processFile(e.target.files[0])} />
+          </label>
+        </div>
+
+        {/* Formatos */}
+        <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+          {[".xlsx", ".xls", ".csv"].map((ext) => (
+            <span key={ext} style={{ fontSize: 10, padding: "3px 8px", background: COLORS.border, borderRadius: 4, color: COLORS.textMuted }}>{ext}</span>
+          ))}
+        </div>
+
+        {/* Status */}
+        {msg && (
+          <div style={{
+            padding: "10px 14px", borderRadius: 6, fontSize: 12,
+            background: status === "error" ? "rgba(224,85,85,0.1)" : status === "done" ? "rgba(76,175,110,0.1)" : "rgba(200,169,110,0.1)",
+            color: status === "error" ? "#E05555" : status === "done" ? "#4CAF6E" : COLORS.accent,
+            border: `1px solid ${status === "error" ? "#E05555" : status === "done" ? "#4CAF6E" : COLORS.accentDim}`,
+          }}>{msg}</div>
+        )}
+
+        {/* Preview */}
+        {preview && (
+          <div style={{ marginTop: 16, padding: 14, background: COLORS.bg, borderRadius: 6 }}>
+            <div style={{ fontSize: 10, letterSpacing: 2, color: COLORS.textMuted, marginBottom: 10 }}>HOJAS DETECTADAS</div>
+            {preview.sheets.map((s) => (
+              <div key={s} style={{ fontSize: 11, color: COLORS.textSub, marginBottom: 4 }}>· {s}</div>
+            ))}
+            <div style={{ fontSize: 10, color: COLORS.textMuted, marginTop: 10 }}>
+              {preview.counts.alumnos} registros de alumnos · {preview.counts.ingresos} de ingresos · {preview.counts.becas} de becas
+            </div>
+            <button onClick={onClose} style={{
+              marginTop: 14, background: COLORS.accent, color: "#000", border: "none",
+              borderRadius: 6, padding: "8px 20px", fontSize: 12, fontWeight: 700, cursor: "pointer", width: "100%",
+            }}>
+              Aplicar al dashboard
             </button>
           </div>
+        )}
 
-          <div>
-            <div class="inp-lbl">// Resultado del análisis</div>
-            <div id="res-ph" class="res-placeholder">El resultado aparecerá aquí<br><span style="font-size:9px">El sistema evaluará el texto usando NLP especializado<br>en detección de antisemitismo en contexto mexicano</span></div>
-            <div class="result-box" id="result-box">
-              <div class="res-head">
-                <div class="score-ring" id="score-ring">--</div>
-                <div style="flex:1">
-                  <div class="res-lv" id="res-level">—</div>
-                  <div class="res-sub" id="res-sub">—</div>
-                  <div style="margin:7px 0 3px">
-                    <div class="sb-track"><div class="sb-fill" id="sb-fill" style="width:0%"></div></div>
-                    <div class="sb-labs"><span>0 Mínimo</span><span>50 Medio</span><span>100 Máximo</span></div>
-                  </div>
-                </div>
-              </div>
-              <div class="res-grid">
-                <div class="rg-cell"><div class="rg-lbl">// Tropos detectados</div><div class="rg-text" id="r-tropos">—</div></div>
-                <div class="rg-cell"><div class="rg-lbl">// Análisis de contexto</div><div class="rg-text" id="r-context">—</div></div>
-                <div class="rg-cell"><div class="rg-lbl">// Justificación del score</div><div class="rg-text" id="r-score">—</div></div>
-                <div class="rg-cell"><div class="rg-lbl">// Riesgo de amplificación</div><div class="rg-text" id="r-risk">—</div></div>
-              </div>
-              <div class="res-actions">
-                <div class="rg-lbl">// Acciones recomendadas por el sistema</div>
-                <div class="action-chips" id="r-actions"></div>
-              </div>
-            </div>
-          </div>
+        <div style={{ marginTop: 20, fontSize: 10, color: COLORS.textMuted, lineHeight: 1.6 }}>
+          El archivo se procesa localmente en tu navegador. No se sube a ningún servidor.
         </div>
       </div>
     </div>
-  </div>
-
-  <!-- ══════ CRISIS ══════ -->
-  <div id="p-crisis" class="panel">
-    <div style="display:grid;grid-template-columns:1.2fr 1fr;gap:14px">
-      <div class="card">
-        <div class="card-head"><div class="card-title">Protocolo de Respuesta a Crisis</div><div class="card-sub">ESCENARIO REAL · TWITTER VIRAL · 26 MAR 2026</div></div>
-        <div class="crisis-prog"><div class="cp-fill" id="cp-fill"></div></div>
-        <div class="crisis-tl">
-          <div class="cs" id="cs-0"><div class="cs-ind"><div class="cs-dot" id="cd-0">1</div><div class="cs-line" id="cl-0"></div></div><div class="cs-con"><div class="cs-title">Detección automática</div><div class="cs-desc">El sistema detecta actividad inusual: 2,400 menciones en 8 minutos con keywords críticos.</div><div class="cs-time">T+00:00</div><div class="cs-det" id="cd-det-0">📡 Scraper activo en Twitter captura hilo con keywords: "judíos" + "controlan" + "medios".<br><br>Score léxico preliminar: <strong style="color:var(--red)">74/100</strong> — umbral crítico superado.<br>Alcance proyectado a 2 horas: <strong>180,000 usuarios</strong>.</div></div></div>
-          <div class="cs" id="cs-1"><div class="cs-ind"><div class="cs-dot" id="cd-1">2</div><div class="cs-line" id="cl-1"></div></div><div class="cs-con"><div class="cs-title">Clasificación por IA</div><div class="cs-desc">Modelo BETO analiza el hilo completo. Score compuesto calculado en 2.3 segundos.</div><div class="cs-time">T+00:08</div><div class="cs-det" id="cd-det-1">🧠 Score NLP: <strong style="color:var(--red)">91%</strong> probabilidad antisemita.<br>Tropos: Control global (5/5) · Citas falsas (4/5).<br>Factor amplificación: ×2.1 (2,400 RTs en 8 min).<br>Score final: <strong style="color:var(--red)">87/100 — Muy Peligroso</strong></div></div></div>
-          <div class="cs" id="cs-2"><div class="cs-ind"><div class="cs-dot" id="cd-2">3</div><div class="cs-line" id="cl-2"></div></div><div class="cs-con"><div class="cs-title">Alerta a directivos</div><div class="cs-desc">Notificación por WhatsApp y Telegram enviada a liderazgo. Tiempo total: 58 segundos.</div><div class="cs-time">T+01:02</div><div class="cs-det" id="cd-det-2">🚨 Enviado a: Presidente · Director Ejecutivo · Asesor Legal · Relaciones Externas.<br><br><em style="color:var(--red)">"ALERTA CRÍTICA — Hilo antisemita viral en Twitter/X. Score: 87/100 · Alcance: 180k · Acción inmediata requerida."</em></div></div></div>
-          <div class="cs" id="cs-3"><div class="cs-ind"><div class="cs-dot" id="cd-3">4</div><div class="cs-line" id="cl-3"></div></div><div class="cs-con"><div class="cs-title">Playbook activado</div><div class="cs-desc">El sistema consulta 340 casos similares y genera un plan de acción personalizado.</div><div class="cs-time">T+01:15</div><div class="cs-det" id="cd-det-3">📋 Acciones sugeridas con base en efectividad histórica:<br><br>① Comunicado público — desmentido con fuentes verificadas (78%)<br>② Reporte a Twitter Trust & Safety (82%)<br>③ Contacto a periodistas aliados (65%)</div></div></div>
-          <div class="cs" id="cs-4"><div class="cs-ind"><div class="cs-dot" id="cd-4">5</div></div><div class="cs-con"><div class="cs-title">Seguimiento y cierre</div><div class="cs-desc">El sistema monitorea la efectividad de cada acción y actualiza el playbook.</div><div class="cs-time">T+04:00</div><div class="cs-det" id="cd-det-4">✅ Tweet removido por la plataforma en 3h 42min.<br>Alcance final: 210k (vs. 500k+ proyectado sin intervención).<br><strong style="color:var(--green)">Daño mitigado estimado: ~58%.</strong><br>Caso incorporado al playbook para futuros análisis.</div></div></div>
-        </div>
-        <div class="crisis-btns">
-          <button class="btn btn-primary" id="crisis-btn" onclick="runCrisis()">▶ Iniciar simulación</button>
-          <button class="btn btn-success" onclick="resetCrisis()" id="crisis-reset" style="display:none">↺ Reiniciar</button>
-        </div>
-      </div>
-
-      <div class="gcol">
-        <div class="card">
-          <div class="card-head"><div class="card-title">Alerta activa — Score 87</div><span class="badge badge-r">Muy peligroso</span></div>
-          <div class="card-body">
-            <div style="background:var(--red2);border:1px solid rgba(192,57,43,0.2);border-radius:5px;padding:11px;margin-bottom:11px">
-              <div style="font-family:'Source Code Pro',monospace;font-size:8px;color:var(--red);margin-bottom:5px;letter-spacing:1px">CONTENIDO DETECTADO</div>
-              <div style="font-size:11px;color:var(--dim);line-height:1.6;font-style:italic">"Los medios de México están controlados por judíos que deciden qué noticias existen y cuáles no. Lo dijo [figura pública]. Ya es hora de que México despierte."</div>
-            </div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:11px">
-              <div style="background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:8px"><div style="font-family:'Source Code Pro',monospace;font-size:7px;color:var(--muted);margin-bottom:3px">FUENTE</div><div style="font-size:11px;font-weight:600;color:var(--text2)">@usuario_anon</div><div style="font-size:9px;color:var(--muted);font-family:'Source Code Pro',monospace">12,400 seguidores</div></div>
-              <div style="background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:8px"><div style="font-family:'Source Code Pro',monospace;font-size:7px;color:var(--muted);margin-bottom:3px">ALCANCE</div><div style="font-size:11px;font-weight:600;color:var(--red)">~180,000</div><div style="font-size:9px;color:var(--muted);font-family:'Source Code Pro',monospace">2,400 retweets</div></div>
-            </div>
-            <div style="font-family:'Source Code Pro',monospace;font-size:8px;color:var(--muted);letter-spacing:1px;margin-bottom:5px">TROPOS IDENTIFICADOS</div>
-            <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:11px">
-              <span class="badge badge-r">Control global · 5/5</span>
-              <span class="badge badge-o">Citas falsas · 4/5</span>
-              <span class="badge badge-o">Conspiración · 4/5</span>
-            </div>
-            <div style="font-family:'Source Code Pro',monospace;font-size:8px;color:var(--muted);letter-spacing:1px;margin-bottom:5px">SCORE COMPUESTO</div>
-            <div style="display:flex;justify-content:space-between;margin-bottom:4px">
-              <span style="font-size:9px;color:var(--muted);font-family:'Source Code Pro',monospace">NLP 91%</span>
-              <span style="font-size:9px;color:var(--muted);font-family:'Source Code Pro',monospace">Léxico 78%</span>
-              <span style="font-size:9px;color:var(--muted);font-family:'Source Code Pro',monospace">Alcance 85%</span>
-              <span style="font-size:9px;color:var(--red);font-family:'Source Code Pro',monospace;font-weight:600">FINAL: 87</span>
-            </div>
-            <div class="sb-track"><div class="sb-fill" style="width:87%;background:linear-gradient(90deg,var(--orange),var(--red))"></div></div>
-          </div>
-        </div>
-        <div class="card">
-          <div class="card-head"><div class="card-title">Plan de acción recomendado</div></div>
-          <div class="card-body" style="display:flex;flex-direction:column;gap:7px">
-            <div style="background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:9px"><div style="display:flex;align-items:center;gap:7px;margin-bottom:4px"><span class="badge badge-b">Acción 1</span><span style="font-size:9px;color:var(--green);font-family:'Source Code Pro',monospace">Efectividad: 78%</span></div><div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:2px">Comunicado público</div><div style="font-size:10px;color:var(--dim)">Desmentido con fuentes verificadas en redes sociales y contacto a medios aliados para amplificación.</div></div>
-            <div style="background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:9px"><div style="display:flex;align-items:center;gap:7px;margin-bottom:4px"><span class="badge badge-b">Acción 2</span><span style="font-size:9px;color:var(--green);font-family:'Source Code Pro',monospace">Efectividad: 82%</span></div><div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:2px">Reporte a plataforma</div><div style="font-size:10px;color:var(--dim)">Denuncia formal a Twitter Trust & Safety con evidencia estructurada. Tiempo promedio de remoción: 4.2h.</div></div>
-            <div style="background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:9px"><div style="display:flex;align-items:center;gap:7px;margin-bottom:4px"><span class="badge badge-b">Acción 3</span><span style="font-size:9px;color:var(--gold);font-family:'Source Code Pro',monospace">Efectividad: 65%</span></div><div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:2px">Contacto mediático</div><div style="font-size:10px;color:var(--dim)">Declaración a periodistas seleccionados con fuentes primarias para contrarrestar narrativa.</div></div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ══════ MAP ══════ -->
-  <div id="p-map" class="panel">
-    <div class="g21">
-      <div class="card">
-        <div class="card-head"><div class="card-title">Mapa de incidentes — República Mexicana</div><div class="card-sub">30 DÍAS · INCIDENTES POR ESTADO</div></div>
-        <div class="card-body" style="padding:0">
-          <div class="map-wrap" id="map-wrap"><svg id="map-svg"></svg><div class="map-tooltip" id="map-tt"></div></div>
-          <div style="padding:10px 16px;border-top:1px solid var(--border);display:flex;align-items:center;gap:14px;flex-wrap:wrap">
-            <span style="font-family:'Source Code Pro',monospace;font-size:8px;color:var(--muted)">INTENSIDAD:</span>
-            <div style="display:flex;align-items:center;gap:7px"><div style="width:50px;height:5px;border-radius:3px;background:linear-gradient(90deg,rgba(26,122,74,.5),rgba(212,101,26,.65),rgba(192,57,43,.85))"></div><span style="font-family:'Source Code Pro',monospace;font-size:8px;color:var(--muted)">Bajo → Crítico</span></div>
-          </div>
-        </div>
-      </div>
-      <div class="gcol">
-        <div class="card">
-          <div class="card-head"><div class="card-title">Estados con más incidentes</div></div>
-          <div class="card-body">
-            <div class="bar-list">
-              <div class="bar-row"><span class="bl-lbl">CDMX</span><div class="bl-track"><div class="bl-fill" style="width:100%;background:var(--red)"></div></div><span class="bl-num">142</span></div>
-              <div class="bar-row"><span class="bl-lbl">Jalisco</span><div class="bl-track"><div class="bl-fill" style="width:45%;background:var(--orange)"></div></div><span class="bl-num">64</span></div>
-              <div class="bar-row"><span class="bl-lbl">Nuevo León</span><div class="bl-track"><div class="bl-fill" style="width:35%;background:var(--orange)"></div></div><span class="bl-num">50</span></div>
-              <div class="bar-row"><span class="bl-lbl">Edo. México</span><div class="bl-track"><div class="bl-fill" style="width:28%;background:var(--gold)"></div></div><span class="bl-num">40</span></div>
-              <div class="bar-row"><span class="bl-lbl">Puebla</span><div class="bl-track"><div class="bl-fill" style="width:20%;background:var(--gold)"></div></div><span class="bl-num">28</span></div>
-            </div>
-          </div>
-        </div>
-        <div class="card">
-          <div class="card-head"><div class="card-title">Foco activo</div><span class="badge badge-r">Crítico</span></div>
-          <div class="card-body">
-            <div style="font-family:'Playfair Display',serif;font-size:20px;font-weight:700;color:var(--red);margin-bottom:3px">Ciudad de México</div>
-            <div style="font-family:'Source Code Pro',monospace;font-size:8px;color:var(--muted);margin-bottom:8px">142 INCIDENTES · 30 DÍAS</div>
-            <div style="font-size:11px;color:var(--dim);line-height:1.6">Alta concentración en Polanco, Santa Fe y Lomas. Twitter/X y Telegram como vectores principales. Tres cuentas reincidentes identificadas.</div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ══════ NETWORK ══════ -->
-  <div id="p-network" class="panel">
-    <div class="g21">
-      <div class="card">
-        <div class="card-head"><div class="card-title">Red de actores — Grafo de difusión</div><div class="card-sub">NODOS: CUENTAS Y MEDIOS · ENLACES: AMPLIFICACIÓN · ARRASTRA LOS NODOS</div></div>
-        <div class="net-wrap" id="net-wrap"><svg id="net-svg"></svg></div>
-        <div style="padding:8px 16px;border-top:1px solid var(--border);display:flex;gap:16px;flex-wrap:wrap;background:var(--bg)">
-          <div class="dl-i"><div class="dl-dot" style="background:var(--red)"></div><span style="font-size:10px;color:var(--dim)">Fuente origen</span></div>
-          <div class="dl-i"><div class="dl-dot" style="background:var(--orange)"></div><span style="font-size:10px;color:var(--dim)">Amplificador</span></div>
-          <div class="dl-i"><div class="dl-dot" style="background:var(--blue)"></div><span style="font-size:10px;color:var(--dim)">Receptor</span></div>
-          <div class="dl-i"><div class="dl-dot" style="background:var(--muted)"></div><span style="font-size:10px;color:var(--dim)">Indirecto</span></div>
-        </div>
-      </div>
-      <div class="gcol">
-        <div class="card">
-          <div class="card-head"><div class="card-title">Actores identificados</div></div>
-          <div class="af-item"><div class="af-accent aa-r"></div><div class="af-body"><div class="af-meta"><span class="badge badge-r">Origen</span><span class="af-src">Twitter</span></div><div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:2px">@conspirador_mx</div><div style="font-size:10px;color:var(--dim)">45,200 seguidores · 12 incidentes · Bot sospechoso</div></div></div>
-          <div class="af-item"><div class="af-accent aa-o"></div><div class="af-body"><div class="af-meta"><span class="badge badge-o">Amplificador</span><span class="af-src">Telegram</span></div><div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:2px">Canal "Verdad MX"</div><div style="font-size:10px;color:var(--dim)">8,200 miembros · 7 incidentes · Coordinado</div></div></div>
-          <div class="af-item"><div class="af-accent aa-o"></div><div class="af-body"><div class="af-meta"><span class="badge badge-o">Amplificador</span><span class="af-src">Podcast</span></div><div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:2px">Podcast "Sin Filtro"</div><div style="font-size:10px;color:var(--dim)">45k oyentes · 3 incidentes · Reincidente</div></div></div>
-          <div class="af-item"><div class="af-accent" style="background:var(--blue)"></div><div class="af-body"><div class="af-meta"><span class="badge badge-b">Receptor</span><span class="af-src">Facebook</span></div><div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:2px">Grupo "Política Real"</div><div style="font-size:10px;color:var(--dim)">22,000 miembros · 2 incidentes · Nuevo</div></div></div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ══════ TIMELINE ══════ -->
-  <div id="p-timeline" class="panel">
-    <div class="card" style="margin-bottom:14px">
-      <div class="card-head"><div class="card-title">Evolución histórica de incidentes por narrativa</div><div class="card-sub">ÚLTIMOS 12 MESES · AGRUPADOS POR TROPO DOMINANTE</div></div>
-      <div class="card-body">
-        <div class="tl-wrap" id="tl-wrap"></div>
-        <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:8px">
-          <div class="dl-i"><div style="width:18px;height:2px;background:var(--red);border-radius:1px"></div><span style="font-size:10px;color:var(--dim)">Control global</span></div>
-          <div class="dl-i"><div style="width:18px;height:2px;background:var(--orange);border-radius:1px"></div><span style="font-size:10px;color:var(--dim)">Geopolítico</span></div>
-          <div class="dl-i"><div style="width:18px;height:2px;background:var(--gold);border-radius:1px"></div><span style="font-size:10px;color:var(--dim)">Negacionismo</span></div>
-          <div class="dl-i"><div style="width:18px;height:2px;background:var(--blue);border-radius:1px"></div><span style="font-size:10px;color:var(--dim)">Religioso</span></div>
-        </div>
-      </div>
-    </div>
-    <div class="g3">
-      <div class="card"><div class="card-head"><div class="card-title">Pico histórico</div></div><div class="card-body"><div style="font-family:'Playfair Display',serif;font-size:26px;font-weight:700;color:var(--red);margin-bottom:3px">Octubre 2023</div><div style="font-family:'Source Code Pro',monospace;font-size:8px;color:var(--muted);margin-bottom:7px">CONFLICTO ISRAEL-GAZA · 89 INC./MES</div><div style="font-size:11px;color:var(--dim);line-height:1.6">Incremento del 340% respecto al promedio mensual. Principal vector: Twitter/X y podcasts políticos.</div></div></div>
-      <div class="card"><div class="card-head"><div class="card-title">Tendencia actual</div></div><div class="card-body"><div style="font-family:'Playfair Display',serif;font-size:26px;font-weight:700;color:var(--orange);margin-bottom:3px">↑ +34%</div><div style="font-family:'Source Code Pro',monospace;font-size:8px;color:var(--muted);margin-bottom:7px">VS. PROMEDIO 6 MESES</div><div style="font-size:11px;color:var(--dim);line-height:1.6">Incremento sostenido en narrativas de "control global" durante el primer trimestre de 2026.</div></div></div>
-      <div class="card"><div class="card-head"><div class="card-title">Narrativa dominante</div></div><div class="card-body"><div style="font-family:'Playfair Display',serif;font-size:18px;font-weight:700;color:var(--red);margin-bottom:3px">Control de medios</div><div style="font-family:'Source Code Pro',monospace;font-size:8px;color:var(--muted);margin-bottom:7px">38% DE TODOS LOS INCIDENTES</div><div style="font-size:11px;color:var(--dim);line-height:1.6">Presente en 8 de cada 10 incidentes críticos. Vector principal: Twitter/X.</div></div></div>
-    </div>
-  </div>
-
-  <!-- ══════ SOURCES ══════ -->
-  <div id="p-sources" class="panel">
-    <div class="kpi-row" style="margin-bottom:14px">
-      <div class="kpi kpi-b"><div class="kpi-lbl">// Fuentes monitoreadas</div><div class="kpi-val kv-b">47</div><div class="kpi-delta">activas en este momento</div></div>
-      <div class="kpi kpi-g"><div class="kpi-lbl">// Uptime de scrapers</div><div class="kpi-val kv-g">99%</div><div class="kpi-delta">últimas 24 horas</div></div>
-      <div class="kpi kpi-o"><div class="kpi-lbl">// Mensajes revisados/día</div><div class="kpi-val kv-o">8.4K</div><div class="kpi-delta">promedio 7 días</div></div>
-      <div class="kpi kpi-r"><div class="kpi-lbl">// Alertas generadas hoy</div><div class="kpi-val kv-r">23</div><div class="kpi-delta">de 8,400 revisados</div></div>
-    </div>
-    <div class="card">
-      <div class="card-head"><div class="card-title">Fuentes activas — Estado en tiempo real</div></div>
-      <div class="card-body">
-        <div class="src-grid">
-          <div class="src-item"><div class="src-icon" style="background:rgba(39,86,168,.08)">🐦</div><div style="flex:1;min-width:0"><div class="src-nm">Twitter / X API v2</div><div class="src-ct">38 keywords · 12 cuentas · 2,400 tweets/día</div></div><div class="src-dot sd-on"></div></div>
-          <div class="src-item"><div class="src-icon" style="background:rgba(39,86,168,.06)">✈️</div><div style="flex:1;min-width:0"><div class="src-nm">Telegram (canales públicos)</div><div class="src-ct">31 canales · 3,100 mensajes/día</div></div><div class="src-dot sd-on"></div></div>
-          <div class="src-item"><div class="src-icon" style="background:rgba(39,86,168,.06)">📘</div><div style="flex:1;min-width:0"><div class="src-nm">Facebook Graph API</div><div class="src-ct">24 páginas · 8 grupos · 1,200 posts/día</div></div><div class="src-dot sd-on"></div></div>
-          <div class="src-item"><div class="src-icon" style="background:rgba(192,57,43,.06)">▶️</div><div style="flex:1;min-width:0"><div class="src-nm">YouTube Data API</div><div class="src-ct">15 canales · comentarios · 600 items/día</div></div><div class="src-dot sd-on"></div></div>
-          <div class="src-item"><div class="src-icon" style="background:rgba(26,122,74,.06)">📰</div><div style="flex:1;min-width:0"><div class="src-nm">RSS Prensa Digital MX</div><div class="src-ct">18 medios · refresh 15 min · 800 art./día</div></div><div class="src-dot sd-on"></div></div>
-          <div class="src-item"><div class="src-icon" style="background:rgba(184,146,42,.06)">🎙️</div><div style="flex:1;min-width:0"><div class="src-nm">Podcasts (Spotify + RSS)</div><div class="src-ct">22 programas · Whisper STT · 12h audio/día</div></div><div class="src-dot sd-off"></div></div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  </div><!-- content -->
-</main>
-</div><!-- shell -->
-
-<div id="toast"></div>
-
-<script>
-// CLOCK
-function tick(){document.getElementById('clock').textContent=new Date().toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false})}
-setInterval(tick,1000);tick();
-
-// NAV
-const TITLES={dashboard:'Tablero Principal',predict:'Centro Predictivo',campaigns:'Motor de Campañas',impact:'Medición de Impacto',analyzer:'Analizador de Contenido',crisis:'Protocolo de Crisis',map:'Mapa Geográfico',network:'Red de Actores',timeline:'Evolución Histórica',sources:'Fuentes de Monitoreo'};
-const SUBS={dashboard:'26 mar 2026 · Tiempo real · 23 incidentes hoy',predict:'Modelos predictivos · Tres horizontes · Inteligencia accionable',campaigns:'Generador de contenido preventivo y educativo',impact:'Efectividad de intervenciones · Resultados documentados',analyzer:'Análisis NLP · Modelo BETO fine-tuned · Español mexicano',crisis:'Escenario real simulado · Twitter viral · 26 mar 2026',map:'Distribución geográfica de incidentes · 30 días',network:'Grafo de difusión · Actores identificados',timeline:'Evolución por narrativa · Últimos 12 meses',sources:'47 fuentes activas · Ingesta continua'};
-
-function nav(id,el){
-  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
-  document.querySelectorAll('.ni').forEach(n=>n.classList.remove('active'));
-  document.getElementById('p-'+id).classList.add('active');
-  if(el)el.classList.add('active');
-  document.getElementById('tb-title').textContent=TITLES[id]||id;
-  document.getElementById('tb-sub').textContent=SUBS[id]||'';
-  if(id==='predict')setTimeout(initLongTermChart,80);
-  if(id==='map')setTimeout(initMap,80);
-  if(id==='network')setTimeout(initNetwork,80);
-  if(id==='timeline')setTimeout(initTimeline,80);
+  );
 }
 
-function switchHorizon(i,el){
-  document.querySelectorAll('.ht').forEach(t=>t.classList.remove('active'));
-  document.querySelectorAll('.ht-content').forEach(c=>c.classList.remove('active'));
-  el.classList.add('active');
-  const target=document.getElementById('ht-'+i);
-  if(target)target.classList.add('active');
-  if(i===2)setTimeout(initLongTermChart,80);
-}
+// ─── APP PRINCIPAL ────────────────────────────────────────────────────────────
+export default function App() {
+  const [tab, setTab] = useState("resumen");
+  const [ciclo, setCiclo] = useState("25-26");
+  const [data, setData] = useState(DEMO);
+  const [fileName, setFileName] = useState("Datos de demostración");
+  const [showUpload, setShowUpload] = useState(false);
 
-(function initCal(){
-  const grid=document.getElementById('cal-grid');
-  if(!grid)return;
-  const risks=[0,0,3,0,1,0,0,0,0,0,2,1,0,1,3,0,0,1,0,0,2,0,1,0,0,0,2,0,0,1];
-  const events={2:'Inicio de campana preventiva',6:'Yom HaShoa - Riesgo critico',13:'Debate legislativo',20:'Aniversario - Vigilancia',27:'Informe mensual'};
-  for(let i=0;i<2;i++){const d=document.createElement('div');d.className='cal-day cr-0';grid.appendChild(d)}
-  risks.forEach((r,i)=>{
-    const day=i+1;
-    const d=document.createElement('div');
-    d.className=`cal-day cr-${r}`;
-    d.innerHTML=`<div class="cal-num">${day}</div><div class="cal-dot" style="background:${r===3?'var(--red)':r===2?'var(--orange)':r===1?'var(--green)':'transparent'}"></div>`;
-    d.onclick=()=>{if(events[i])toast(`${day} Abr: ${events[i]}`);else toast(`${day} Abr - Riesgo: ${['Sin riesgo','Bajo','Medio','Alto'][r]}`)};
-    grid.appendChild(d);
-  });
-})();
+  const handleData = useCallback((parsed, name) => {
+    // Merge parsed data with DEMO structure for missing parts
+    // In production this would fully replace DEMO
+    setFileName(name);
+    // For now we keep DEMO but flag that real data was loaded
+    setData((prev) => ({ ...prev, _realData: parsed, _loaded: true }));
+  }, []);
 
-function initLongTermChart(){
-  const wrap=document.getElementById('tl-long-wrap');
-  if(!wrap||!wrap.offsetWidth)return;
-  const W=wrap.offsetWidth,H=wrap.offsetHeight||200;
-  const m={t:14,r:14,b:28,l:34};
-  const iw=W-m.l-m.r,ih=H-m.t-m.b;
-  d3.select('#tl-long-wrap').html('');
-  const svg=d3.select('#tl-long-wrap').append('svg').attr('width',W).attr('height',H);
-  const g=svg.append('g').attr('transform',`translate(${m.l},${m.t})`);
-  const labels=['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
-  const hist=[18,22,20,28,32,18,14,20,22,89,45,30];
-  const proj=[null,null,null,null,null,null,null,null,22,30,36,42];
-  const x=d3.scalePoint().domain(labels).range([0,iw]).padding(0.1);
-  const y=d3.scaleLinear().domain([0,100]).range([ih,0]);
-  g.append('g').call(d3.axisLeft(y).ticks(5).tickSize(-iw)).call(g2=>g2.select('.domain').remove()).call(g2=>g2.selectAll('.tick line').attr('stroke','rgba(15,32,68,0.06)').attr('stroke-dasharray','3,3')).call(g2=>g2.selectAll('.tick text').attr('font-family','Source Code Pro,monospace').attr('font-size',8).attr('fill','#8A94A8'));
-  g.append('g').attr('transform',`translate(0,${ih})`).call(d3.axisBottom(x).tickSize(0)).call(g2=>g2.select('.domain').attr('stroke','rgba(15,32,68,0.1)')).call(g2=>g2.selectAll('.tick text').attr('font-family','Source Code Pro,monospace').attr('font-size',8).attr('fill','#8A94A8').attr('dy',9));
-  const histData=hist.map((v,i)=>({x:labels[i],y:v}));
-  const line=d3.line().x(d=>x(d.x)).y(d=>y(d.y)).curve(d3.curveCatmullRom);
-  g.append('path').datum(histData).attr('fill','none').attr('stroke','var(--navy)').attr('stroke-width',2).attr('d',line);
-  const projData=proj.map((v,i)=>({x:labels[i],y:v})).filter(d=>d.y!==null);
-  if(projData.length>1){
-    const projLine=d3.line().x(d=>x(d.x)).y(d=>y(d.y)).curve(d3.curveCatmullRom);
-    g.append('path').datum(projData).attr('fill','none').attr('stroke','var(--orange)').attr('stroke-width',1.5).attr('stroke-dasharray','5,3').attr('d',projLine);
-  }
-  g.append('line').attr('x1',x('Oct')).attr('y1',0).attr('x2',x('Oct')).attr('y2',ih).attr('stroke','rgba(192,57,43,0.2)').attr('stroke-width',1).attr('stroke-dasharray','3,3');
-  g.append('line').attr('x1',x('Mar')).attr('y1',0).attr('x2',x('Mar')).attr('y2',ih).attr('stroke','rgba(39,86,168,0.3)').attr('stroke-width',1);
-}
-
-function selectTone(el){
-  document.querySelectorAll('#tone-chips .chip').forEach(c=>c.classList.remove('selected'));
-  el.classList.add('selected');
-}
-function getSelectedTone(){
-  const sel=document.querySelector('#tone-chips .chip.selected');
-  return sel?sel.textContent:'Educativo';
-}
-function generateCampaign(){
-  const type=document.getElementById('camp-type');
-  if(!type)return;
-  const narrative=document.getElementById('camp-narrative').value;
-  const platform=document.getElementById('camp-platform').value;
-  const audience=document.getElementById('camp-audience').value;
-  const context=document.getElementById('camp-context').value.trim();
-  const tone=getSelectedTone();
-  const btn=document.getElementById('gen-btn');
-  const btxt=document.getElementById('gen-btn-txt');
-  const spin=document.getElementById('gen-spin');
-  btn.disabled=true;btxt.textContent='Generando...';spin.style.display='block';
-  document.getElementById('gen-placeholder').style.display='none';
-  document.getElementById('gen-result').className='gen-result show';
-  setTimeout(()=>{
-    const texto=`${platform}\n\nObjetivo: Contrarrestar la narrativa "${narrative}" con enfoque ${tone.toLowerCase()}.\nAudiencia: ${audience}.\n\nMensaje clave:\n- Informar con evidencia verificable.\n- Evitar amplificar el mensaje de odio.\n- Ofrecer contexto histórico y llamado a convivencia.\n\nBorrador sugerido:\n"${narrative} no es un hecho, es un tropo desinformativo que daña la convivencia. Compartimos contexto, fuentes y herramientas para identificar desinformación sin normalizar el odio."\n\n${context?`Contexto incorporado: ${context}`:''}`;
-    document.getElementById('gen-content').textContent=texto;
-    const metrics=document.getElementById('camp-proj-metrics');
-    metrics.innerHTML=
-      `<div style="background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:8px;text-align:center"><div style="font-family:'Source Code Pro',monospace;font-size:8px;color:var(--muted);margin-bottom:4px">ALCANCE</div><div style="font-size:11px;color:var(--text2);font-weight:600">28k - 65k</div></div>`+
-      `<div style="background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:8px;text-align:center"><div style="font-family:'Source Code Pro',monospace;font-size:8px;color:var(--muted);margin-bottom:4px">ENGAGEMENT</div><div style="font-size:11px;color:var(--text2);font-weight:600">4.2% - 7.8%</div></div>`+
-      `<div style="background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:8px;text-align:center"><div style="font-family:'Source Code Pro',monospace;font-size:8px;color:var(--muted);margin-bottom:4px">REDUCCIÓN</div><div style="font-size:11px;color:var(--text2);font-weight:600">-22% a -39%</div></div>`;
-    btn.disabled=false;btxt.textContent='Generar contenido de campaña';spin.style.display='none';
-    toast('Contenido de campaña generado');
-  },700);
-}
-function copyContent(){
-  const el=document.getElementById('gen-content');
-  if(!el)return;
-  navigator.clipboard.writeText(el.textContent||'').then(()=>toast('Contenido copiado')).catch(()=>toast('No se pudo copiar'));
-}
-
-// HEATMAP
-const hmEl=document.getElementById('heatmap');
-if(hmEl){[0,0,1,1,2,3,1,0,2,3,0,1,2,1,0,3,2,1,0,1,2,3,1,2,0,1,0,3,2,1].forEach(v=>{const c=document.createElement('div');c.className='hm hm'+v;hmEl.appendChild(c)})}
-
-// TOAST
-function toast(msg,d=2400){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),d)}
-
-// SAMPLES
-const SAMPLES=[
-  {t:'Los medios de México están en manos de judíos que deciden qué noticias existen y cuáles no. Ya es hora de que el pueblo mexicano despierte y vea quiénes son los que realmente nos controlan y manipulan la información.',s:'Twitter / X',r:'Alto (50k–500k)'},
-  {t:'Este pueblo no merece existir. Son como una plaga que se expande por el mundo usando su dinero para corromper gobiernos. Lo que está pasando en Gaza no es casualidad, es parte de un plan de exterminio.',s:'Telegram',r:'Medio (1k–50k)'},
-  {t:'La política exterior de Israel en Gaza es cuestionable y viola el derecho internacional. La comunidad internacional debe presionar para un cese al fuego inmediato y una solución de dos estados justa.',s:'Prensa Digital',r:'Bajo (<1,000)'},
-  {t:'El Holocausto fue exagerado por los medios sionistas. Las cifras reales son una fracción de lo que se dice. Los historiadores que cuestionan esto son silenciados sistemáticamente por el lobby judío.',s:'Blog',r:'Bajo (<1,000)'}
-];
-function loadSample(i){const s=SAMPLES[i];document.getElementById('az-input').value=s.t;document.getElementById('src-sel').value=s.s;document.getElementById('reach-sel').value=s.r;toast('Muestra cargada — presiona Analizar')}
-
-// ANALYZER
-async function analyze(){
-  const text=document.getElementById('az-input').value.trim();
-  if(!text){toast('Escribe o pega un texto primero');return}
-  const src=document.getElementById('src-sel').value;
-  const reach=document.getElementById('reach-sel').value;
-  const btn=document.getElementById('az-btn');
-  const btxt=document.getElementById('az-btn-txt');
-  const spin=document.getElementById('az-spin');
-  btn.disabled=true;btxt.textContent='Analizando...';spin.style.display='block';
-  document.getElementById('res-ph').style.display='none';
-  const rb=document.getElementById('result-box');rb.className='result-box show';
-  document.getElementById('score-ring').textContent='...';
-  document.getElementById('res-level').textContent='Procesando...';
-  document.getElementById('res-sub').textContent='El modelo está evaluando el contenido';
-  ['r-tropos','r-context','r-score','r-risk'].forEach(id=>document.getElementById(id).textContent='Analizando...');
-  document.getElementById('r-actions').innerHTML='';document.getElementById('sb-fill').style.width='0%';
-
-  const prompt=`Eres el motor de análisis del sistema de monitoreo de la Tribuna Israelita de México, especializado en detectar antisemitismo en contenido en español mexicano.
-
-Analiza el texto y responde SOLO con JSON válido, sin texto adicional:
-{"score":<0-100>,"nivel":"<MUY PELIGROSO|PELIGROSO|REGULAR>","tropos":"<tropos detectados separados por coma, o 'Ninguno identificado'>","contexto":"<análisis contextual en 2-3 oraciones>","justificacion":"<justificación del score en 1-2 oraciones>","riesgo":"<evaluación del riesgo de amplificación en 1-2 oraciones>","acciones":["<acción 1>","<acción 2>","<acción 3>"]}
-
-Criterios de clasificación: 0-39 REGULAR (crítica política sin tropos antisemitas), 40-69 PELIGROSO (tropos identificables, lenguaje de odio), 70-100 MUY PELIGROSO (incitación, deshumanización, negacionismo, control global).
-Fuente del contenido: ${src}. Alcance estimado: ${reach}.
-Texto: "${text}"`;
-
-  try{
-    const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1000,messages:[{role:'user',content:prompt}]})});
-    const data=await res.json();
-    let raw=data.content[0].text.trim().replace(/```json|```/g,'').trim();
-    renderResult(JSON.parse(raw));
-  }catch(e){
-    document.getElementById('res-level').textContent='Error de conexión';
-    document.getElementById('res-sub').textContent='Verifica la conexión e intenta de nuevo';
-    toast('Error al conectar con el servicio de IA');
-  }finally{btn.disabled=false;btxt.textContent='Analizar con inteligencia artificial';spin.style.display='none'}
-}
-
-function renderResult(r){
-  const s=r.score||0;
-  const ring=document.getElementById('score-ring');
-  ring.textContent=s;ring.className='score-ring '+(s>=70?'sr-r':s>=40?'sr-o':'sr-g');
-  const lv=document.getElementById('res-level');
-  lv.textContent=r.nivel;lv.style.color=s>=70?'var(--red)':s>=40?'var(--orange)':'var(--green)';
-  document.getElementById('res-sub').textContent=`Score: ${s}/100 · Modelo BETO fine-tuned · ${document.getElementById('src-sel').value}`;
-  const fill=document.getElementById('sb-fill');
-  fill.style.width=s+'%';fill.style.background=s>=70?'linear-gradient(90deg,var(--orange),var(--red))':s>=40?'var(--orange)':'var(--green)';
-  document.getElementById('r-tropos').textContent=r.tropos;
-  document.getElementById('r-context').textContent=r.contexto;
-  document.getElementById('r-score').textContent=r.justificacion;
-  document.getElementById('r-risk').textContent=r.riesgo;
-  const ac=document.getElementById('r-actions');ac.innerHTML='';
-  (r.acciones||[]).forEach(a=>{const ch=document.createElement('div');ch.className='chip';ch.textContent='→ '+a;ac.appendChild(ch)});
-  toast('Análisis completado · Score: '+s+'/100');
-}
-
-// CRISIS
-let crisisRunning=false,crisisStep=0,crisisTimer=null;
-function runCrisis(){
-  if(crisisRunning)return;crisisRunning=true;crisisStep=0;
-  document.getElementById('crisis-btn').style.display='none';
-  document.getElementById('crisis-reset').style.display='inline-flex';
-  stepCrisis();
-}
-function stepCrisis(){
-  if(crisisStep>4){crisisRunning=false;return}
-  const s=document.getElementById('cs-'+crisisStep);
-  const d=document.getElementById('cd-'+crisisStep);
-  const det=document.getElementById('cd-det-'+crisisStep);
-  s.classList.add('active');
-  d.className='cs-dot '+(crisisStep===2?'alert-d':'active');
-  det.classList.add('show');
-  document.getElementById('cp-fill').style.width=((crisisStep+1)/5*100)+'%';
-  if(crisisStep>0){
-    document.getElementById('cs-'+(crisisStep-1)).classList.replace('active','done');
-    document.getElementById('cd-'+(crisisStep-1)).className='cs-dot done';
-    document.getElementById('cd-'+(crisisStep-1)).textContent='✓';
-    const pl=document.getElementById('cl-'+(crisisStep-1));if(pl)pl.classList.add('done');
-  }
-  const msgs=['Paso 1 — Detección automática activada','Paso 2 — Clasificación por IA completada','Paso 3 — Alerta enviada a directivos (58 seg.)','Paso 4 — Playbook consultado, acciones generadas','✓ Simulación completa — Protocolo ejecutado'];
-  toast(msgs[crisisStep]);
-  crisisStep++;
-  if(crisisStep<=4)crisisTimer=setTimeout(stepCrisis,[1200,1400,1300,1400,0][crisisStep-1]);
-}
-function resetCrisis(){
-  clearTimeout(crisisTimer);crisisRunning=false;crisisStep=0;
-  for(let i=0;i<5;i++){
-    const s=document.getElementById('cs-'+i);s.classList.remove('active','done');
-    const d=document.getElementById('cd-'+i);d.className='cs-dot';d.textContent=i+1;
-    document.getElementById('cd-det-'+i).classList.remove('show');
-    const l=document.getElementById('cl-'+i);if(l)l.classList.remove('done');
-  }
-  document.getElementById('cp-fill').style.width='0%';
-  document.getElementById('crisis-btn').style.display='inline-flex';
-  document.getElementById('crisis-reset').style.display='none';
-}
-
-// MAP
-function initMap(){
-  const wrap=document.getElementById('map-wrap');if(!wrap)return;
-  const W=wrap.offsetWidth,H=wrap.offsetHeight;
-  const svg=d3.select('#map-svg').attr('width',W).attr('height',H);svg.selectAll('*').remove();
-  const states=[
-    {n:'CDMX',c:142,x:.52,y:.56},{n:'Jalisco',c:64,x:.34,y:.54},{n:'Nuevo León',c:50,x:.49,y:.38},
-    {n:'Edo. México',c:40,x:.50,y:.54},{n:'Puebla',c:28,x:.57,y:.57},{n:'Veracruz',c:22,x:.58,y:.53},
-    {n:'Chihuahua',c:18,x:.28,y:.27},{n:'B. California',c:15,x:.11,y:.23},{n:'Sonora',c:14,x:.20,y:.29},
-    {n:'Tamaulipas',c:13,x:.53,y:.40},{n:'Coahuila',c:11,x:.43,y:.34},{n:'Sinaloa',c:9,x:.27,y:.39},
-    {n:'Guanajuato',c:8,x:.43,y:.52},{n:'Querétaro',c:6,x:.47,y:.51},{n:'Oaxaca',c:5,x:.57,y:.65},
-    {n:'Chiapas',c:4,x:.61,y:.69},{n:'Yucatán',c:3,x:.74,y:.53},{n:'Guerrero',c:3,x:.47,y:.64},
-    {n:'Morelos',c:2,x:.51,y:.59},{n:'Michoacán',c:2,x:.40,y:.59},{n:'Zacatecas',c:1,x:.38,y:.43},
-    {n:'Durango',c:1,x:.32,y:.35},{n:'SLP',c:1,x:.46,y:.45},{n:'Nayarit',c:1,x:.29,y:.46},
-    {n:'Hidalgo',c:1,x:.52,y:.50},{n:'Tabasco',c:1,x:.63,y:.61},
+  const tabs = [
+    { id: "resumen", label: "Resumen" },
+    { id: "escuelas", label: "Escuelas" },
+    { id: "becas", label: "Becas y subsidios" },
+    { id: "carga", label: "Carga de datos", icon: "↑" },
   ];
-  function col(c){
-    const a=Math.min(0.85,0.3+c/120);
-    if(c>=60)return`rgba(192,57,43,${a})`;
-    if(c>=20)return`rgba(212,101,26,${a})`;
-    if(c>=8)return`rgba(184,146,42,${a+0.1})`;
-    return`rgba(26,122,74,${a+0.1})`;
-  }
-  const tt=document.getElementById('map-tt');
-  const g=svg.append('g');
-  // light grid
-  for(let i=0;i<7;i++){g.append('line').attr('x1',0).attr('y1',i*H/6).attr('x2',W).attr('y2',i*H/6).attr('stroke','rgba(15,32,68,0.04)').attr('stroke-width',1)}
-  for(let i=0;i<12;i++){g.append('line').attr('x1',i*W/11).attr('y1',0).attr('x2',i*W/11).attr('y2',H).attr('stroke','rgba(15,32,68,0.04)').attr('stroke-width',1)}
-  states.forEach(s=>{
-    const cx=s.x*W,cy=s.y*H,r=Math.max(8,Math.min(34,5+Math.sqrt(s.c)*2.7));
-    g.append('circle').attr('cx',cx).attr('cy',cy).attr('r',r).attr('fill',col(s.c)).attr('stroke','rgba(255,255,255,0.5)').attr('stroke-width',0.8).style('cursor','pointer')
-      .on('mouseover',function(ev){d3.select(this).attr('stroke-width',2).attr('stroke','var(--navy)');tt.innerHTML=`<div style="color:var(--navy);font-weight:700;margin-bottom:3px">${s.n}</div><div>Incidentes: <strong style="color:var(--red)">${s.c}</strong></div><div style="font-size:8px;color:var(--muted);margin-top:2px">30 días</div>`;tt.style.opacity=1;tt.style.left=(ev.offsetX+12)+'px';tt.style.top=(ev.offsetY-8)+'px'})
-      .on('mousemove',function(ev){tt.style.left=(ev.offsetX+12)+'px';tt.style.top=(ev.offsetY-8)+'px'})
-      .on('mouseout',function(){d3.select(this).attr('stroke-width',0.8).attr('stroke','rgba(255,255,255,0.5)');tt.style.opacity=0})
-      .on('click',()=>toast(`${s.n}: ${s.c} incidentes · 30 días`));
-    if(r>13)g.append('text').attr('x',cx).attr('y',cy+4).attr('text-anchor','middle').attr('font-family','Source Sans 3,sans-serif').attr('font-size',Math.max(7,r*0.5)).attr('fill','rgba(255,255,255,0.92)').attr('font-weight','600').attr('pointer-events','none').text(s.c);
-    if(r>22)g.append('text').attr('x',cx).attr('y',cy+r+12).attr('text-anchor','middle').attr('font-family','Source Code Pro,monospace').attr('font-size',8).attr('fill','var(--dim)').attr('pointer-events','none').text(s.n);
-  });
-}
 
-// NETWORK
-function initNetwork(){
-  const wrap=document.getElementById('net-wrap');if(!wrap)return;
-  const W=wrap.offsetWidth,H=wrap.offsetHeight;
-  const svg=d3.select('#net-svg').attr('width',W).attr('height',H);svg.selectAll('*').remove();
-  const nodes=[
-    {id:0,n:'@conspirador_mx',t:'origin',r:18,sc:87},{id:1,n:'Canal Verdad MX',t:'amplifier',r:14,sc:52},
-    {id:2,n:'Podcast SinFiltro',t:'amplifier',r:13,sc:58},{id:3,n:'@politica_real',t:'amplifier',r:11,sc:45},
-    {id:4,n:'Grupo Pol. Real',t:'receiver',r:10,sc:30},{id:5,n:'@anon_1',t:'receiver',r:8,sc:25},
-    {id:6,n:'@anon_2',t:'receiver',r:8,sc:20},{id:7,n:'Blog ConspiraMX',t:'amplifier',r:9,sc:42},
-    {id:8,n:'@foro_mx',t:'receiver',r:8,sc:18},{id:9,n:'Canal Anon',t:'indirect',r:7,sc:14},
-    {id:10,n:'@rt_1',t:'indirect',r:6,sc:11},{id:11,n:'@rt_2',t:'indirect',r:6,sc:9},
-  ];
-  const links=[{s:0,t:1,h:1},{s:0,t:2,h:1},{s:0,t:3,h:1},{s:1,t:4,h:0},{s:1,t:7,h:0},{s:2,t:4,h:0},{s:2,t:5,h:0},{s:3,t:6,h:0},{s:3,t:8,h:0},{s:7,t:9,h:0},{s:7,t:10,h:0},{s:4,t:11,h:0}];
-  const cmap={origin:'#C0392B',amplifier:'#D4651A',receiver:'#2756A8',indirect:'#8A94A8'};
-  const sim=d3.forceSimulation(nodes).force('link',d3.forceLink(links.map(l=>({source:l.s,target:l.t,...l}))).id(d=>d.id).distance(80).strength(0.6)).force('charge',d3.forceManyBody().strength(-200)).force('center',d3.forceCenter(W/2,H/2)).force('collision',d3.forceCollide().radius(d=>d.r+10));
-  const g=svg.append('g');
-  const link=g.append('g').selectAll('line').data(links).join('line').attr('stroke',d=>d.h?'rgba(192,57,43,0.3)':'rgba(15,32,68,0.1)').attr('stroke-width',d=>d.h?1.5:1);
-  const node=g.append('g').selectAll('g').data(nodes).join('g').style('cursor','pointer')
-    .call(d3.drag().on('start',function(e,d){if(!e.active)sim.alphaTarget(0.3).restart();d.fx=d.x;d.fy=d.y}).on('drag',function(e,d){d.fx=e.x;d.fy=e.y}).on('end',function(e,d){if(!e.active)sim.alphaTarget(0);d.fx=null;d.fy=null}));
-  node.append('circle').attr('r',d=>d.r).attr('fill',d=>cmap[d.t]+'15').attr('stroke',d=>cmap[d.t]).attr('stroke-width',1.5);
-  node.append('text').attr('text-anchor','middle').attr('dy','0.35em').attr('font-family','Playfair Display,serif').attr('font-size',d=>Math.max(7,d.r*0.55)).attr('fill',d=>cmap[d.t]).attr('font-weight','700').attr('pointer-events','none').text(d=>d.sc);
-  node.append('text').attr('text-anchor','middle').attr('dy',d=>d.r+11).attr('font-family','Source Code Pro,monospace').attr('font-size',7.5).attr('fill','var(--dim)').attr('pointer-events','none').text(d=>d.n.length>15?d.n.slice(0,15)+'…':d.n);
-  node.on('click',function(e,d){toast(`${d.n} · Score ${d.sc} · Tipo: ${d.t}`)});
-  sim.on('tick',()=>{
-    link.attr('x1',d=>d.source.x).attr('y1',d=>d.source.y).attr('x2',d=>d.target.x).attr('y2',d=>d.target.y);
-    node.attr('transform',d=>`translate(${Math.max(d.r,Math.min(W-d.r,d.x))},${Math.max(d.r,Math.min(H-d.r,d.y))})`);
-  });
-}
+  return (
+    <div style={{ background: COLORS.bg, minHeight: "100vh", fontFamily: "'DM Sans', sans-serif", color: COLORS.text }}>
+      <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
 
-// TIMELINE
-function initTimeline(){
-  const wrap=document.getElementById('tl-wrap');if(!wrap)return;
-  const W=wrap.offsetWidth,H=wrap.offsetHeight||260;
-  const m={t:16,r:16,b:30,l:36};
-  const iw=W-m.l-m.r,ih=H-m.t-m.b;
-  d3.select('#tl-wrap').html('');
-  const svg=d3.select('#tl-wrap').append('svg').attr('width',W).attr('height',H);
-  const g=svg.append('g').attr('transform',`translate(${m.l},${m.t})`);
-  const months=['Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic','Ene','Feb','Mar'];
-  const series=[
-    {n:'Control global',c:'#C0392B',d:[8,10,9,12,11,14,22,18,16,20,24,28]},
-    {n:'Geopolítico',c:'#D4651A',d:[4,6,8,10,8,12,89,45,30,22,18,20]},
-    {n:'Negacionismo',c:'#B8922A',d:[2,3,4,3,5,4,8,7,6,5,7,8]},
-    {n:'Religioso',c:'#2756A8',d:[1,2,2,3,2,3,5,4,3,4,5,4]},
-  ];
-  const x=d3.scalePoint().domain(months).range([0,iw]).padding(0.1);
-  const maxV=d3.max(series.flatMap(s=>s.d));
-  const y=d3.scaleLinear().domain([0,maxV*1.1]).range([ih,0]);
-  g.append('g').call(d3.axisLeft(y).ticks(5).tickSize(-iw)).call(g2=>g2.select('.domain').remove()).call(g2=>g2.selectAll('.tick line').attr('stroke','rgba(15,32,68,0.07)').attr('stroke-dasharray','3,3')).call(g2=>g2.selectAll('.tick text').attr('font-family','Source Code Pro,monospace').attr('font-size',8).attr('fill','#8A94A8'));
-  g.append('g').attr('transform',`translate(0,${ih})`).call(d3.axisBottom(x).tickSize(0)).call(g2=>g2.select('.domain').attr('stroke','rgba(15,32,68,0.12)')).call(g2=>g2.selectAll('.tick text').attr('font-family','Source Code Pro,monospace').attr('font-size',8).attr('fill','#8A94A8').attr('dy',10));
-  series.forEach(s=>{
-    const area=d3.area().x((d,i)=>x(months[i])).y0(ih).y1((d,i)=>y(d)).curve(d3.curveCatmullRom);
-    const line=d3.line().x((d,i)=>x(months[i])).y((d,i)=>y(d)).curve(d3.curveCatmullRom);
-    g.append('path').datum(s.d).attr('fill',s.c).attr('opacity',.07).attr('d',area);
-    g.append('path').datum(s.d).attr('fill','none').attr('stroke',s.c).attr('stroke-width',1.5).attr('d',line);
-    g.selectAll(null).data(s.d).join('circle').attr('cx',(d,i)=>x(months[i])).attr('cy',d=>y(d)).attr('r',3).attr('fill',s.c).attr('stroke','#fff').attr('stroke-width',1).style('cursor','pointer').on('mouseover',function(e,d){d3.select(this).attr('r',5);toast(`${s.n}: ${d} incidentes`)}).on('mouseout',function(){d3.select(this).attr('r',3)});
-  });
-  g.append('line').attr('x1',x('Oct')).attr('y1',0).attr('x2',x('Oct')).attr('y2',ih).attr('stroke','rgba(192,57,43,0.25)').attr('stroke-width',1).attr('stroke-dasharray','4,4');
-  g.append('text').attr('x',x('Oct')+4).attr('y',11).attr('font-family','Source Code Pro,monospace').attr('font-size',8).attr('fill','rgba(192,57,43,0.6)').text('Pico oct. 2023');
+      {/* HEADER */}
+      <div style={{ background: COLORS.surface, borderBottom: `1px solid ${COLORS.border}`, padding: "0 28px", position: "sticky", top: 0, zIndex: 50 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", height: 56 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+            <div style={{ background: COLORS.accent, color: "#000", fontWeight: 800, fontSize: 13, width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 6 }}>VH</div>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, letterSpacing: 0.3 }}>Sistema Inteligente Vaad Hajinuj</div>
+              <div style={{ fontSize: 10, color: COLORS.textMuted, letterSpacing: 1 }}>DASHBOARD EJECUTIVO · RED DE COLEGIOS</div>
+            </div>
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {/* Ciclo selector */}
+            <div style={{ display: "flex", gap: 4, background: COLORS.bg, borderRadius: 6, padding: 3, border: `1px solid ${COLORS.border}` }}>
+              {["24-25", "25-26"].map((c) => (
+                <button key={c} onClick={() => setCiclo(c)} style={{
+                  padding: "4px 12px", borderRadius: 4, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 600,
+                  background: ciclo === c ? COLORS.accent : "transparent",
+                  color: ciclo === c ? "#000" : COLORS.textMuted,
+                }}>{c}</button>
+              ))}
+            </div>
+
+            {/* Upload button */}
+            <button onClick={() => setShowUpload(true)} style={{
+              display: "flex", alignItems: "center", gap: 6,
+              background: "transparent", border: `1px solid ${COLORS.border}`,
+              color: COLORS.textSub, fontSize: 11, padding: "6px 14px",
+              borderRadius: 6, cursor: "pointer", fontFamily: "inherit",
+            }}>
+              <span style={{ fontSize: 14 }}>↑</span> Actualizar BBDD
+            </button>
+
+            {/* Fuente */}
+            <div style={{ fontSize: 10, color: COLORS.textMuted, maxWidth: 180, textAlign: "right", lineHeight: 1.4 }}>
+              <span style={{ display: "block", color: data._loaded ? "#4CAF6E" : COLORS.textMuted }}>
+                {data._loaded ? "● BBDD cargada" : "● Demo data"}
+              </span>
+              {fileName}
+            </div>
+          </div>
+        </div>
+
+        {/* TABS */}
+        <div style={{ display: "flex", gap: 0 }}>
+          {tabs.filter((t) => t.id !== "carga").map((t) => (
+            <button key={t.id} onClick={() => setTab(t.id)} style={{
+              padding: "12px 20px", background: "none", border: "none", cursor: "pointer",
+              fontSize: 12, fontWeight: tab === t.id ? 600 : 400,
+              color: tab === t.id ? COLORS.accent : COLORS.textMuted,
+              borderBottom: tab === t.id ? `2px solid ${COLORS.accent}` : "2px solid transparent",
+              fontFamily: "inherit", transition: "all 0.15s",
+            }}>
+              {t.icon && <span style={{ marginRight: 4 }}>{t.icon}</span>}
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* CONTENT */}
+      <div style={{ padding: 28, maxWidth: 1400, margin: "0 auto" }}>
+        {/* Ciclo badge */}
+        <div style={{ marginBottom: 20, display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ fontSize: 11, color: COLORS.textMuted }}>
+            Mostrando datos del ciclo escolar
+          </div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: COLORS.accent, background: "rgba(200,169,110,0.1)", padding: "3px 10px", borderRadius: 4, border: `1px solid ${COLORS.accentDim}` }}>
+            {ciclo}
+          </div>
+          <div style={{ fontSize: 10, color: COLORS.textMuted }}>
+            · Los alumnos e ingresos no son acumulables entre ciclos
+          </div>
+        </div>
+
+        {tab === "resumen" && <TabResumen data={data} ciclo={ciclo} />}
+        {tab === "escuelas" && <TabEscuelas data={data} ciclo={ciclo} />}
+        {tab === "becas" && <TabBecas data={data} ciclo={ciclo} />}
+      </div>
+
+      {/* FOOTER */}
+      <div style={{ borderTop: `1px solid ${COLORS.border}`, padding: "12px 28px", display: "flex", justifyContent: "space-between", fontSize: 10, color: COLORS.textMuted }}>
+        <span>SISTEMA INTELIGENTE VAAD HAJINUJ · DASHBOARD V2</span>
+        <span>BASE: {num(data.escuelas.reduce((s, e) => s + e.alumnos, 0))} ALUMNOS · 5 ESCUELAS · RED COMPLETA · CICLO {ciclo}</span>
+      </div>
+
+      {/* UPLOAD MODAL */}
+      {showUpload && (
+        <UploadPanel
+          onData={handleData}
+          onClose={() => setShowUpload(false)}
+        />
+      )}
+    </div>
+  );
 }
-</script>
-</body>
-</html>
