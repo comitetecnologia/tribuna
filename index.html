@@ -1,0 +1,1616 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tribuna Israelita — Sistema Integrado</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@300;400;500;600&display=swap');
+
+:root {
+  --bg: #080b12;
+  --surface: #0e1420;
+  --surface2: #141b2a;
+  --border: #1c2538;
+  --border2: #243046;
+  --accent: #e8c84a;
+  --accent-dim: rgba(232,200,74,0.12);
+  --red: #e84a4a;
+  --red-dim: rgba(232,74,74,0.12);
+  --orange: #e8944a;
+  --orange-dim: rgba(232,148,74,0.12);
+  --yellow: #e8d44a;
+  --yellow-dim: rgba(232,212,74,0.12);
+  --blue: #4a8ee8;
+  --blue-dim: rgba(74,142,232,0.12);
+  --green: #4ae88a;
+  --green-dim: rgba(74,232,138,0.1);
+  --purple: #a84ae8;
+  --purple-dim: rgba(168,74,232,0.12);
+  --text: #c8d4e8;
+  --text2: #7888a8;
+  --text3: #3d4f6a;
+  --mono: 'JetBrains Mono', monospace;
+  --sans: 'Syne', sans-serif;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 13px;
+  display: flex;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* ─── SIDEBAR ─── */
+.sidebar {
+  width: 220px;
+  min-width: 220px;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  top: 0; left: 0; bottom: 0;
+  z-index: 100;
+  overflow-y: auto;
+}
+
+.sidebar-logo {
+  padding: 20px 18px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.sidebar-logo .name {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--accent);
+  letter-spacing: 0.06em;
+  line-height: 1.2;
+}
+.sidebar-logo .sub {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--text3);
+  margin-top: 4px;
+  letter-spacing: 0.1em;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--red-dim);
+  border: 1px solid rgba(232,74,74,0.3);
+  border-radius: 20px;
+  padding: 3px 8px;
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--red);
+  margin-top: 8px;
+  letter-spacing: 0.08em;
+}
+.status-pill::before {
+  content: '';
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: var(--red);
+  animation: blink 1.4s infinite;
+}
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+.nav-section {
+  padding: 14px 0 4px;
+}
+.nav-label {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--text3);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 0 18px 6px;
+}
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 18px;
+  cursor: pointer;
+  color: var(--text2);
+  font-size: 12px;
+  font-weight: 600;
+  transition: all 0.15s;
+  border-left: 2px solid transparent;
+  user-select: none;
+}
+.nav-item:hover { color: var(--text); background: rgba(255,255,255,0.03); }
+.nav-item.active { color: var(--accent); border-left-color: var(--accent); background: var(--accent-dim); }
+.nav-icon { font-size: 14px; width: 18px; text-align: center; flex-shrink: 0; }
+.nav-badge {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 9px;
+  background: var(--red-dim);
+  color: var(--red);
+  border: 1px solid rgba(232,74,74,0.3);
+  border-radius: 10px;
+  padding: 1px 6px;
+}
+.nav-badge.new { background: var(--accent-dim); color: var(--accent); border-color: rgba(232,200,74,0.3); }
+
+/* ─── MAIN ─── */
+.main {
+  margin-left: 220px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.topbar {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  top: 0;
+  z-index: 50;
+}
+.topbar-title { font-size: 14px; font-weight: 800; color: var(--text); }
+.topbar-sub { font-family: var(--mono); font-size: 10px; color: var(--text3); margin-top: 2px; }
+
+.topbar-right { display: flex; align-items: center; gap: 12px; }
+.alert-level {
+  display: flex; align-items: center; gap: 6px;
+  background: var(--red-dim);
+  border: 1px solid rgba(232,74,74,0.35);
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--red);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+.content { padding: 24px 28px; flex: 1; }
+
+/* ─── PANELS ─── */
+.panel { display: none; }
+.panel.active { display: block; }
+
+/* ─── METRICS ROW ─── */
+.metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 22px; }
+.metric {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px 18px;
+  position: relative;
+  overflow: hidden;
+}
+.metric::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+}
+.metric.red::before { background: var(--red); }
+.metric.orange::before { background: var(--orange); }
+.metric.yellow::before { background: var(--yellow); }
+.metric.blue::before { background: var(--blue); }
+.metric.green::before { background: var(--green); }
+.metric-val { font-family: var(--mono); font-size: 28px; font-weight: 600; line-height: 1; }
+.metric.red .metric-val { color: var(--red); }
+.metric.orange .metric-val { color: var(--orange); }
+.metric.yellow .metric-val { color: var(--yellow); }
+.metric.blue .metric-val { color: var(--blue); }
+.metric.green .metric-val { color: var(--green); }
+.metric-label { font-size: 11px; color: var(--text2); margin-top: 6px; }
+.metric-delta { font-family: var(--mono); font-size: 9px; color: var(--text3); margin-top: 4px; }
+
+/* ─── GRID LAYOUTS ─── */
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+.grid-1-2 { display: grid; grid-template-columns: 1fr 2fr; gap: 14px; }
+.grid-2-1 { display: grid; grid-template-columns: 2fr 1fr; gap: 14px; }
+
+/* ─── CARD ─── */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 14px;
+}
+.card-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.card-title { font-size: 11px; font-weight: 700; color: var(--text); letter-spacing: 0.04em; text-transform: uppercase; }
+.card-sub { font-family: var(--mono); font-size: 9px; color: var(--text3); }
+.card-body { padding: 16px; }
+
+/* ─── INCIDENTS ─── */
+.incident {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 14px;
+  margin-bottom: 10px;
+  background: var(--surface2);
+  cursor: pointer;
+  transition: border-color 0.15s;
+  position: relative;
+}
+.incident:hover { border-color: var(--border2); }
+.incident.crit { border-left: 3px solid var(--red); }
+.incident.peli { border-left: 3px solid var(--orange); }
+.incident.regu { border-left: 3px solid var(--yellow); }
+.incident.info { border-left: 3px solid var(--blue); }
+
+.inc-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.inc-score {
+  font-family: var(--mono);
+  font-size: 20px;
+  font-weight: 600;
+  min-width: 36px;
+  text-align: center;
+}
+.incident.crit .inc-score { color: var(--red); }
+.incident.peli .inc-score { color: var(--orange); }
+.incident.regu .inc-score { color: var(--yellow); }
+.incident.info .inc-score { color: var(--blue); }
+
+.inc-title { font-size: 12px; font-weight: 700; color: var(--text); line-height: 1.4; flex: 1; }
+.inc-body { font-size: 11px; color: var(--text2); line-height: 1.6; margin-bottom: 10px; }
+
+.inc-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.tag {
+  font-family: var(--mono);
+  font-size: 9px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  border: 1px solid;
+}
+.tag.source { background: var(--blue-dim); color: var(--blue); border-color: rgba(74,142,232,0.3); }
+.tag.tipo { background: var(--purple-dim); color: var(--purple); border-color: rgba(168,74,232,0.3); }
+.tag.ti-code { background: var(--accent-dim); color: var(--accent); border-color: rgba(232,200,74,0.3); font-weight: 600; }
+.tag.time { background: transparent; color: var(--text3); border-color: var(--border); }
+.tag.alcance { background: var(--orange-dim); color: var(--orange); border-color: rgba(232,148,74,0.3); }
+
+/* ─── TI CLASSIFICATION PANEL ─── */
+.ti-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.ti-panel-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--accent-dim);
+  display: flex; align-items: center; gap: 8px;
+}
+.ti-panel-title {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.ti-categories { padding: 8px; max-height: 420px; overflow-y: auto; }
+.ti-cat {
+  border-radius: 6px;
+  margin-bottom: 4px;
+  overflow: hidden;
+}
+.ti-cat-header {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px;
+  cursor: pointer;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  transition: background 0.15s;
+  user-select: none;
+}
+.ti-cat-header:hover { background: rgba(232,200,74,0.06); }
+.ti-cat-header.open { border-radius: 6px 6px 0 0; border-bottom-color: transparent; }
+.ti-cat-code {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  min-width: 24px;
+}
+.ti-cat-name { font-size: 11px; font-weight: 700; color: var(--text); flex: 1; }
+.ti-cat-count {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--text3);
+}
+.ti-cat-arrow { font-size: 9px; color: var(--text3); transition: transform 0.2s; }
+.ti-cat-header.open .ti-cat-arrow { transform: rotate(90deg); }
+
+.ti-subcats {
+  display: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-top: none;
+  border-radius: 0 0 6px 6px;
+  padding: 4px 0;
+}
+.ti-subcats.open { display: block; }
+.ti-subcat {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 10px 5px 22px;
+  cursor: pointer;
+  transition: background 0.1s;
+  border-radius: 4px;
+  margin: 1px 6px;
+}
+.ti-subcat:hover { background: var(--accent-dim); }
+.ti-subcat.selected { background: var(--accent-dim); }
+.ti-subcat-code {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--accent);
+  min-width: 52px;
+}
+.ti-subcat-name { font-size: 10px; color: var(--text2); line-height: 1.3; }
+.ti-subcat-cnt { margin-left: auto; font-family: var(--mono); font-size: 9px; color: var(--text3); }
+
+/* ─── ANALYZER ─── */
+.analyzer-box {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+}
+textarea {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 12px;
+  resize: vertical;
+  min-height: 100px;
+  outline: none;
+  transition: border-color 0.15s;
+  line-height: 1.6;
+}
+textarea:focus { border-color: var(--accent); }
+textarea::placeholder { color: var(--text3); }
+
+select, input[type=text] {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 7px 10px;
+  outline: none;
+  transition: border-color 0.15s;
+  width: 100%;
+}
+select:focus, input[type=text]:focus { border-color: var(--accent); }
+select option { background: var(--surface); }
+
+.form-row { display: grid; gap: 10px; margin-bottom: 10px; }
+.form-row.cols-2 { grid-template-columns: 1fr 1fr; }
+.form-row.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+.form-label { font-family: var(--mono); font-size: 9px; color: var(--text3); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 5px; }
+
+.btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 9px 18px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 700;
+  transition: all 0.15s;
+  letter-spacing: 0.03em;
+}
+.btn-primary {
+  background: var(--accent);
+  color: #0a0c10;
+}
+.btn-primary:hover { background: #f0d862; }
+.btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-ghost {
+  background: transparent;
+  color: var(--text2);
+  border: 1px solid var(--border);
+}
+.btn-ghost:hover { border-color: var(--border2); color: var(--text); }
+
+/* ─── RESULT BOX ─── */
+.result-box {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  margin-top: 14px;
+  display: none;
+}
+.result-box.visible { display: block; }
+
+.result-score-row { display: flex; align-items: center; gap: 16px; margin-bottom: 16px; }
+.score-circle {
+  width: 72px; height: 72px;
+  border-radius: 50%;
+  border: 3px solid;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--mono);
+  font-size: 22px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.result-summary h3 { font-size: 14px; font-weight: 800; margin-bottom: 4px; }
+.result-summary p { font-size: 11px; color: var(--text2); line-height: 1.6; }
+
+.result-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
+.result-section { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 12px; }
+.result-section-title { font-family: var(--mono); font-size: 9px; color: var(--text3); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 8px; }
+
+/* TI Classification result block */
+.ti-result-block {
+  background: var(--accent-dim);
+  border: 1px solid rgba(232,200,74,0.25);
+  border-radius: 6px;
+  padding: 12px;
+  margin-top: 10px;
+}
+.ti-result-title { font-family: var(--mono); font-size: 9px; color: var(--accent); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 8px; }
+.ti-result-codes { display: flex; flex-wrap: wrap; gap: 6px; }
+.ti-code-chip {
+  display: flex; align-items: center; gap: 6px;
+  background: rgba(232,200,74,0.1);
+  border: 1px solid rgba(232,200,74,0.3);
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--accent);
+}
+.ti-code-chip .code { font-weight: 600; }
+.ti-code-chip .name { color: rgba(232,200,74,0.7); font-size: 9px; }
+
+.tropo-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.tropo-label { font-size: 10px; color: var(--text2); min-width: 120px; }
+.tropo-track { flex: 1; height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
+.tropo-fill { height: 100%; border-radius: 2px; transition: width 1s ease; }
+.tropo-val { font-family: var(--mono); font-size: 10px; color: var(--text3); min-width: 28px; text-align: right; }
+
+/* ─── LOADING ─── */
+.loading { display: none; align-items: center; gap: 10px; padding: 16px 0; }
+.loading.visible { display: flex; }
+.spinner {
+  width: 16px; height: 16px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading-text { font-family: var(--mono); font-size: 11px; color: var(--text3); }
+
+/* ─── MINI TABLE ─── */
+.mini-table { width: 100%; border-collapse: collapse; }
+.mini-table th {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  font-weight: 400;
+}
+.mini-table td { padding: 8px 10px; border-bottom: 1px solid var(--border); font-size: 11px; }
+.mini-table tr:last-child td { border-bottom: none; }
+.mini-table tr:hover td { background: rgba(255,255,255,0.02); }
+
+/* ─── PREDICTIVE ─── */
+.pred-card {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px;
+  margin-bottom: 10px;
+  display: flex;
+  gap: 14px;
+}
+.pred-conf {
+  font-family: var(--mono);
+  font-size: 22px;
+  font-weight: 600;
+  min-width: 52px;
+  text-align: center;
+}
+.pred-card.crit .pred-conf { color: var(--red); }
+.pred-card.warn .pred-conf { color: var(--orange); }
+.pred-card.watch .pred-conf { color: var(--yellow); }
+.pred-info h4 { font-size: 12px; font-weight: 700; margin-bottom: 4px; }
+.pred-info p { font-size: 11px; color: var(--text2); line-height: 1.5; }
+.pred-ti { margin-top: 6px; }
+
+/* ─── SCROLLBAR ─── */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<nav class="sidebar">
+  <div class="sidebar-logo">
+    <div class="name">TRIBUNA ISRAELITA</div>
+    <div class="sub">SISTEMA INTEGRADO · CET</div>
+    <div class="status-pill">SISTEMA ACTIVO</div>
+  </div>
+
+  <div class="nav-section">
+    <div class="nav-label">Operaciones</div>
+    <div class="nav-item active" onclick="showPanel('tablero')">
+      <span class="nav-icon">▦</span> Tablero Principal
+      <span class="nav-badge">23</span>
+    </div>
+    <div class="nav-item" onclick="showPanel('analizador')">
+      <span class="nav-icon">◈</span> Analizador IA
+    </div>
+    <div class="nav-item" onclick="showPanel('registro')">
+      <span class="nav-icon">✦</span> Registro de Incidente
+      <span class="nav-badge new">NEW</span>
+    </div>
+  </div>
+
+  <div class="nav-section">
+    <div class="nav-label">Inteligencia</div>
+    <div class="nav-item" onclick="showPanel('predictivo')">
+      <span class="nav-icon">◎</span> Centro Predictivo
+    </div>
+    <div class="nav-item" onclick="showPanel('clasificacion')">
+      <span class="nav-icon">⬡</span> Índice TI
+      <span class="nav-badge new">TI</span>
+    </div>
+  </div>
+
+  <div class="nav-section">
+    <div class="nav-label">Exploración</div>
+    <div class="nav-item" onclick="showPanel('actores')">
+      <span class="nav-icon">◉</span> Red de Actores
+    </div>
+    <div class="nav-item" onclick="showPanel('historico')">
+      <span class="nav-icon">▷</span> Evolución Histórica
+    </div>
+  </div>
+</nav>
+
+<!-- MAIN -->
+<div class="main">
+
+  <!-- TOPBAR -->
+  <div class="topbar">
+    <div>
+      <div class="topbar-title" id="topbar-title">Tablero Principal</div>
+      <div class="topbar-sub">26 MAR 2026 · Tiempo real · 23 incidentes hoy</div>
+    </div>
+    <div class="topbar-right">
+      <div class="alert-level">⚠ NIVEL ALTO</div>
+    </div>
+  </div>
+
+  <div class="content">
+
+    <!-- ══════════════════════════════ TABLERO ══════════════════════════════ -->
+    <div id="panel-tablero" class="panel active">
+      <div class="metrics">
+        <div class="metric red">
+          <div class="metric-val">23</div>
+          <div class="metric-label">Incidentes hoy</div>
+          <div class="metric-delta">↑ +8 vs. ayer</div>
+        </div>
+        <div class="metric orange">
+          <div class="metric-val">4</div>
+          <div class="metric-label">Muy peligrosos</div>
+          <div class="metric-delta">↑ +2 esta semana</div>
+        </div>
+        <div class="metric blue">
+          <div class="metric-val">47</div>
+          <div class="metric-label">Fuentes activas</div>
+          <div class="metric-delta">↑ +3 nuevas</div>
+        </div>
+        <div class="metric yellow">
+          <div class="metric-val">1.2M</div>
+          <div class="metric-label">Alcance estimado</div>
+          <div class="metric-delta">↑ +340k vs. ayer</div>
+        </div>
+      </div>
+
+      <div class="grid-2-1">
+        <!-- Incidentes recientes -->
+        <div>
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Alertas Recientes</div>
+                <div class="card-sub">ÚLTIMAS 6 HORAS · Con clasificación TI</div>
+              </div>
+            </div>
+            <div class="card-body">
+
+              <div class="incident crit">
+                <div class="inc-header">
+                  <div class="inc-score">87</div>
+                  <div class="inc-title">Hilo viral: "judíos controlan los medios mexicanos" — citas falsas atribuidas a figuras públicas</div>
+                </div>
+                <div class="inc-body">2,400 RTs en 8 minutos. Alcance estimado: 180k usuarios. Tropos: Control global 5/5 · Citas falsas 4/5 · Conspiración 4/5.</div>
+                <div class="inc-meta">
+                  <span class="tag source">Twitter/X</span>
+                  <span class="tag tipo">DIGITAL</span>
+                  <span class="tag ti-code">01-1-010</span>
+                  <span class="tag ti-code">01-2-000</span>
+                  <span class="tag alcance">Viral 180k</span>
+                  <span class="tag time">12 min</span>
+                </div>
+              </div>
+
+              <div class="incident peli">
+                <div class="inc-header">
+                  <div class="inc-score">58</div>
+                  <div class="inc-title">Episodio de podcast político: vinculan Israel con "genocidio planificado"</div>
+                </div>
+                <div class="inc-body">45k oyentes. Segmento de 8 min. Retórica de deshumanización sistemática detectada. Canal reincidente.</div>
+                <div class="inc-meta">
+                  <span class="tag source">Podcast</span>
+                  <span class="tag tipo">ANTISIONISMO</span>
+                  <span class="tag ti-code">04-2-003</span>
+                  <span class="tag ti-code">07-1-000</span>
+                  <span class="tag alcance">Alto 45k</span>
+                  <span class="tag time">1h</span>
+                </div>
+              </div>
+
+              <div class="incident peli">
+                <div class="inc-header">
+                  <div class="inc-score">52</div>
+                  <div class="inc-title">Canal de Telegram difunde Protocolos de los Sabios de Sión como documento actual</div>
+                </div>
+                <div class="inc-body">8,200 miembros. Patrón de difusión coordinada confirmado. Tercer incidente del mismo canal en 30 días.</div>
+                <div class="inc-meta">
+                  <span class="tag source">Telegram</span>
+                  <span class="tag tipo">CONSPIRACION</span>
+                  <span class="tag ti-code">01-1-000</span>
+                  <span class="tag ti-code">09-1-004</span>
+                  <span class="tag alcance">Medio 8.2k</span>
+                  <span class="tag time">2h</span>
+                </div>
+              </div>
+
+              <div class="incident regu">
+                <div class="inc-header">
+                  <div class="inc-score">22</div>
+                  <div class="inc-title">Opinión sobre política exterior israelí en prensa digital</div>
+                </div>
+                <div class="inc-body">Sin tropos antisemitas confirmados. Crítica política legítima. Monitoreo pasivo activado automáticamente.</div>
+                <div class="inc-meta">
+                  <span class="tag source">Prensa</span>
+                  <span class="tag tipo">GEOPOLITICO</span>
+                  <span class="tag ti-code">14-1-018</span>
+                  <span class="tag ti-code">08-1-001</span>
+                  <span class="tag alcance">Bajo</span>
+                  <span class="tag time">4h</span>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+
+        <!-- Panel lateral: distribución + TI stats -->
+        <div>
+          <div class="card" style="margin-bottom:14px">
+            <div class="card-header"><div class="card-title">Distribución · Hoy</div></div>
+            <div class="card-body">
+              <div style="margin-bottom:10px">
+                <div class="tropo-bar">
+                  <div class="tropo-label" style="color:var(--red)">Muy peligroso</div>
+                  <div class="tropo-track"><div class="tropo-fill" style="width:17%;background:var(--red)"></div></div>
+                  <div class="tropo-val">4</div>
+                </div>
+                <div class="tropo-bar">
+                  <div class="tropo-label" style="color:var(--orange)">Peligroso</div>
+                  <div class="tropo-track"><div class="tropo-fill" style="width:35%;background:var(--orange)"></div></div>
+                  <div class="tropo-val">8</div>
+                </div>
+                <div class="tropo-bar">
+                  <div class="tropo-label" style="color:var(--yellow)">Regular</div>
+                  <div class="tropo-track"><div class="tropo-fill" style="width:48%;background:var(--yellow)"></div></div>
+                  <div class="tropo-val">11</div>
+                </div>
+              </div>
+              <div style="border-top:1px solid var(--border);padding-top:12px;margin-top:4px">
+                <div class="card-sub" style="margin-bottom:8px;color:var(--text3)">CATEGORÍAS TI MÁS ACTIVAS · 30 DÍAS</div>
+                <div class="tropo-bar">
+                  <div class="tropo-label"><span style="color:var(--accent);font-family:var(--mono)">01</span> Antisemitismo</div>
+                  <div class="tropo-track"><div class="tropo-fill" style="width:82%;background:var(--accent)"></div></div>
+                  <div class="tropo-val" style="color:var(--accent)">142</div>
+                </div>
+                <div class="tropo-bar">
+                  <div class="tropo-label"><span style="color:var(--accent);font-family:var(--mono)">04</span> Sionismo</div>
+                  <div class="tropo-track"><div class="tropo-fill" style="width:48%;background:var(--accent);opacity:0.7"></div></div>
+                  <div class="tropo-val" style="color:var(--text3)">83</div>
+                </div>
+                <div class="tropo-bar">
+                  <div class="tropo-label"><span style="color:var(--accent);font-family:var(--mono)">07</span> Israel</div>
+                  <div class="tropo-track"><div class="tropo-fill" style="width:35%;background:var(--accent);opacity:0.5"></div></div>
+                  <div class="tropo-val" style="color:var(--text3)">61</div>
+                </div>
+                <div class="tropo-bar">
+                  <div class="tropo-label"><span style="color:var(--accent);font-family:var(--mono)">09</span> Terrorismo</div>
+                  <div class="tropo-track"><div class="tropo-fill" style="width:22%;background:var(--accent);opacity:0.4"></div></div>
+                  <div class="tropo-val" style="color:var(--text3)">38</div>
+                </div>
+                <div class="tropo-bar">
+                  <div class="tropo-label"><span style="color:var(--accent);font-family:var(--mono)">14</span> México</div>
+                  <div class="tropo-track"><div class="tropo-fill" style="width:15%;background:var(--accent);opacity:0.3"></div></div>
+                  <div class="tropo-val" style="color:var(--text3)">26</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header"><div class="card-title">Subcódigos más frecuentes</div><div class="card-sub">30 DÍAS</div></div>
+            <div class="card-body" style="padding:8px">
+              <table class="mini-table">
+                <tr><th>Código TI</th><th>Descripción</th><th style="text-align:right">N</th></tr>
+                <tr><td><span style="color:var(--accent);font-family:var(--mono)">01-1-010</span></td><td>Antisemitismo en internet</td><td style="text-align:right;color:var(--red)">98</td></tr>
+                <tr><td><span style="color:var(--accent);font-family:var(--mono)">01-2-000</span></td><td>Antisemitismo en México</td><td style="text-align:right;color:var(--orange)">74</td></tr>
+                <tr><td><span style="color:var(--accent);font-family:var(--mono)">04-2-003</span></td><td>Antisionismo en México</td><td style="text-align:right;color:var(--orange)">62</td></tr>
+                <tr><td><span style="color:var(--accent);font-family:var(--mono)">09-1-004</span></td><td>Terrorismo en internet</td><td style="text-align:right;color:var(--yellow)">41</td></tr>
+                <tr><td><span style="color:var(--accent);font-family:var(--mono)">14-1-018</span></td><td>Opinión medios sobre Israel</td><td style="text-align:right;color:var(--text3)">29</td></tr>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════ ANALIZADOR ══════════════════════════════ -->
+    <div id="panel-analizador" class="panel">
+      <div class="grid-2-1">
+        <div>
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Analizador de Contenido — IA</div>
+                <div class="card-sub">DETECCIÓN NLP · ESPAÑOL MEXICANO · CON CLASIFICACIÓN TI AUTOMÁTICA</div>
+              </div>
+            </div>
+            <div class="card-body">
+              <div class="analyzer-box">
+                <div class="form-label">Texto a analizar</div>
+                <textarea id="analyze-text" placeholder="Pega aquí el contenido a analizar..." rows="5"></textarea>
+
+                <div class="form-row cols-3" style="margin-top:10px">
+                  <div>
+                    <div class="form-label">Fuente</div>
+                    <select id="analyze-source">
+                      <option>Twitter / X</option>
+                      <option>Telegram</option>
+                      <option>Facebook</option>
+                      <option>YouTube</option>
+                      <option>Podcast</option>
+                      <option>Prensa Digital</option>
+                      <option>Blog</option>
+                    </select>
+                  </div>
+                  <div>
+                    <div class="form-label">Alcance estimado</div>
+                    <select id="analyze-alcance">
+                      <option>Bajo (&lt;1,000)</option>
+                      <option>Medio (1k–50k)</option>
+                      <option selected>Alto (50k–500k)</option>
+                      <option>Viral (&gt;500k)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <div class="form-label">Contexto</div>
+                    <select id="analyze-context">
+                      <option>General</option>
+                      <option>Político</option>
+                      <option>Religioso</option>
+                      <option>Económico</option>
+                      <option>Geopolítico</option>
+                    </select>
+                  </div>
+                </div>
+
+                <!-- Muestra rápida -->
+                <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;margin-bottom:12px">
+                  <button class="btn btn-ghost" style="font-size:10px;padding:5px 10px" onclick="setDemo('crit')">● Crítico: Control medios</button>
+                  <button class="btn btn-ghost" style="font-size:10px;padding:5px 10px" onclick="setDemo('peli')">● Peligroso: Deshumanización</button>
+                  <button class="btn btn-ghost" style="font-size:10px;padding:5px 10px" onclick="setDemo('regu')">● Regular: Crítica política</button>
+                </div>
+
+                <button class="btn btn-primary" id="btn-analyze" onclick="runAnalysis()">◈ Analizar con IA</button>
+              </div>
+
+              <div class="loading" id="loading-analyze">
+                <div class="spinner"></div>
+                <div class="loading-text">Analizando contenido con NLP · Clasificando en índice TI...</div>
+              </div>
+
+              <div class="result-box" id="result-box">
+                <div class="result-score-row">
+                  <div class="score-circle" id="result-circle">—</div>
+                  <div class="result-summary">
+                    <h3 id="result-level">—</h3>
+                    <p id="result-desc">—</p>
+                  </div>
+                </div>
+
+                <!-- TI Classification block -->
+                <div class="ti-result-block" id="ti-result-block">
+                  <div class="ti-result-title">⬡ Clasificación automática — Índice TI</div>
+                  <div class="ti-result-codes" id="ti-result-codes"></div>
+                  <div style="margin-top:8px;font-size:10px;color:rgba(232,200,74,0.6)" id="ti-result-nota"></div>
+                </div>
+
+                <div class="result-grid">
+                  <div class="result-section">
+                    <div class="result-section-title">Tropos detectados</div>
+                    <div id="result-tropos"></div>
+                  </div>
+                  <div class="result-section">
+                    <div class="result-section-title">Análisis contextual</div>
+                    <div id="result-context" style="font-size:11px;color:var(--text2);line-height:1.7"></div>
+                  </div>
+                </div>
+
+                <div class="result-section" style="margin-top:10px">
+                  <div class="result-section-title">Acciones recomendadas</div>
+                  <div id="result-actions" style="font-size:11px;color:var(--text2);line-height:1.8"></div>
+                </div>
+
+                <div style="margin-top:12px;display:flex;gap:8px">
+                  <button class="btn btn-primary" onclick="registerFromAnalysis()">✦ Registrar incidente</button>
+                  <button class="btn btn-ghost" onclick="document.getElementById('result-box').classList.remove('visible')">Cerrar</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Panel TI lateral -->
+        <div>
+          <div class="ti-panel">
+            <div class="ti-panel-header">
+              <span>⬡</span>
+              <span class="ti-panel-title">Índice de Clasificación TI</span>
+            </div>
+            <div class="ti-categories" id="ti-sidebar-cats"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════ REGISTRO ══════════════════════════════ -->
+    <div id="panel-registro" class="panel">
+      <div class="grid-2-1">
+        <div>
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Registrar Incidente</div>
+                <div class="card-sub">NUEVO INCIDENTE · CLASIFICACIÓN DUAL: OPERATIVA + ÍNDICE TI</div>
+              </div>
+            </div>
+            <div class="card-body">
+              <div class="form-row">
+                <div>
+                  <div class="form-label">Título del incidente *</div>
+                  <input type="text" id="reg-titulo" placeholder="Descripción breve del incidente">
+                </div>
+              </div>
+              <div class="form-row">
+                <div>
+                  <div class="form-label">Descripción completa *</div>
+                  <textarea id="reg-desc" rows="4" placeholder="Contexto, hechos observados, fuente original..."></textarea>
+                </div>
+              </div>
+              <div class="form-row cols-3">
+                <div>
+                  <div class="form-label">Fecha del incidente</div>
+                  <input type="text" id="reg-fecha" value="2026-03-26">
+                </div>
+                <div>
+                  <div class="form-label">Fuente / Medio</div>
+                  <select id="reg-fuente">
+                    <option>Twitter / X</option><option>Telegram</option>
+                    <option>Facebook</option><option>YouTube</option>
+                    <option>Podcast</option><option>Prensa Digital</option>
+                    <option>Blog</option><option>Otro</option>
+                  </select>
+                </div>
+                <div>
+                  <div class="form-label">País</div>
+                  <select id="reg-pais">
+                    <option>México</option><option>Estados Unidos</option>
+                    <option>Argentina</option><option>España</option><option>Otro</option>
+                  </select>
+                </div>
+              </div>
+
+              <div style="border-top:1px solid var(--border);margin:16px 0;padding-top:16px">
+                <div class="form-label" style="font-size:11px;color:var(--text2);margin-bottom:12px">CLASIFICACIÓN OPERATIVA</div>
+                <div class="form-row cols-3">
+                  <div>
+                    <div class="form-label">Severidad</div>
+                    <select id="reg-severidad">
+                      <option>Informativo</option>
+                      <option>Regular</option>
+                      <option selected>Peligroso</option>
+                      <option>Muy peligroso</option>
+                    </select>
+                  </div>
+                  <div>
+                    <div class="form-label">Tipo antisemitismo</div>
+                    <select id="reg-tipo">
+                      <option>DIGITAL</option><option>ECONOMICO</option>
+                      <option>ANTISIONISMO</option><option>CONSPIRACION</option>
+                      <option>NEGACIONISMO</option><option>ISLAMISTA</option>
+                      <option>VANDAL</option><option>OTRO</option>
+                    </select>
+                  </div>
+                  <div>
+                    <div class="form-label">Alcance</div>
+                    <select id="reg-alcance">
+                      <option>Local</option><option>Nacional</option>
+                      <option>Regional</option><option>Internacional</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div style="border-top:1px solid var(--border);margin:16px 0;padding-top:16px">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+                  <div class="form-label" style="font-size:11px;color:var(--accent)">⬡ CLASIFICACIÓN ÍNDICE TI (sistema legado)</div>
+                  <span style="font-family:var(--mono);font-size:9px;color:var(--text3)">Selecciona el subcódigo desde el panel →</span>
+                </div>
+                <div id="reg-ti-selected" style="display:flex;flex-wrap:wrap;gap:6px;min-height:36px;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px">
+                  <span style="color:var(--text3);font-size:10px;font-family:var(--mono)">Ningún código TI seleccionado. Usa el panel → para clasificar.</span>
+                </div>
+              </div>
+
+              <div class="form-row cols-2">
+                <div>
+                  <div class="form-label">URL de la fuente</div>
+                  <input type="text" id="reg-url" placeholder="https://...">
+                </div>
+                <div>
+                  <div class="form-label">Etiquetas (separadas por coma)</div>
+                  <input type="text" id="reg-tags" placeholder="coordinado, reincidente, viral">
+                </div>
+              </div>
+
+              <div style="display:flex;gap:8px;margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
+                <button class="btn btn-primary" onclick="saveIncident()">✦ Guardar incidente</button>
+                <button class="btn btn-ghost" onclick="clearForm()">Limpiar</button>
+              </div>
+
+              <div id="reg-success" style="display:none;margin-top:12px;background:var(--green-dim);border:1px solid rgba(74,232,138,0.3);border-radius:6px;padding:12px;font-family:var(--mono);font-size:11px;color:var(--green)"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TI Selector lateral -->
+        <div>
+          <div style="margin-bottom:8px;font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:0.1em">SELECCIONAR CÓDIGO TI →</div>
+          <div class="ti-panel">
+            <div class="ti-panel-header">
+              <span>⬡</span>
+              <span class="ti-panel-title">Índice de Clasificación TI</span>
+            </div>
+            <div class="ti-categories" id="ti-register-cats"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════ PREDICTIVO ══════════════════════════════ -->
+    <div id="panel-predictivo" class="panel">
+      <div class="metrics">
+        <div class="metric orange"><div class="metric-val">71%</div><div class="metric-label">Riesgo 48-72h</div><div class="metric-delta">Prob. de pico</div></div>
+        <div class="metric yellow"><div class="metric-val">Medio</div><div class="metric-label">Riesgo mensual</div><div class="metric-delta">Tendencia ascendente</div></div>
+        <div class="metric blue"><div class="metric-val">73%</div><div class="metric-label">Confianza modelo</div><div class="metric-delta">8 meses de datos</div></div>
+        <div class="metric red"><div class="metric-val">3</div><div class="metric-label">Alertas activas</div><div class="metric-delta">Próximas 72h</div></div>
+      </div>
+
+      <div class="grid-2">
+        <div>
+          <div class="card">
+            <div class="card-header"><div class="card-title">Alertas Predictivas — 72h</div><div class="card-sub">MODELO LSTM · CON CÓDIGO TI</div></div>
+            <div class="card-body">
+
+              <div class="pred-card crit">
+                <div class="pred-conf">78%</div>
+                <div class="pred-info">
+                  <h4>Pico narrativa "Control de medios"</h4>
+                  <p>3 cuentas monitoreadas incrementaron actividad +240% en últimas 18h. Proyectado: Miércoles 14:00–20:00.</p>
+                  <div class="pred-ti">
+                    <span class="tag ti-code">01-1-010</span>
+                    <span class="tag ti-code">01-2-000</span>
+                    <span class="tag source" style="margin-left:4px">Twitter/X · Telegram</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="pred-card warn">
+                <div class="pred-conf">67%</div>
+                <div class="pred-info">
+                  <h4>Amplificación en podcast político</h4>
+                  <p>67% de episodios similares incluyeron tropos antisemitas. Proyectado: Jueves por la mañana.</p>
+                  <div class="pred-ti">
+                    <span class="tag ti-code">04-2-003</span>
+                    <span class="tag ti-code">14-1-018</span>
+                    <span class="tag source" style="margin-left:4px">Podcast</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="pred-card watch">
+                <div class="pred-conf">62%</div>
+                <div class="pred-info">
+                  <h4>Activación narrativa negacionista</h4>
+                  <p>Fechas conmemorativas: volumen de negacionismo en grupos abiertos sube 3.2x históricamente.</p>
+                  <div class="pred-ti">
+                    <span class="tag ti-code">03-5-001</span>
+                    <span class="tag ti-code">01-1-000</span>
+                    <span class="tag source" style="margin-left:4px">Facebook</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div class="card">
+            <div class="card-header"><div class="card-title">Correlaciones detectadas</div><div class="card-sub">BASADO EN HISTÓRICO TI</div></div>
+            <div class="card-body">
+              <table class="mini-table">
+                <tr><th>Evento</th><th>Código TI relacionado</th><th>Correlación</th></tr>
+                <tr><td>Conflicto internacional</td><td><span class="tag ti-code" style="display:inline">08-1-001</span></td><td style="color:var(--red)">r=.87</td></tr>
+                <tr><td>Debate sobre medios</td><td><span class="tag ti-code" style="display:inline">14-1-018</span></td><td style="color:var(--orange)">r=.71</td></tr>
+                <tr><td>Fechas conmemorativas</td><td><span class="tag ti-code" style="display:inline">03-1-002</span></td><td style="color:var(--yellow)">r=.68</td></tr>
+                <tr><td>Debate legislativo</td><td><span class="tag ti-code" style="display:inline">14-1-006</span></td><td style="color:var(--yellow)">r=.61</td></tr>
+              </table>
+
+              <div style="margin-top:16px">
+                <div class="card-sub" style="margin-bottom:10px">PULSO DE NARRATIVAS — 24H</div>
+                <div class="tropo-bar">
+                  <div class="tropo-label">Control de medios <span style="color:var(--accent);font-family:var(--mono);font-size:9px">01-1-010</span></div>
+                  <div class="tropo-track"><div class="tropo-fill" style="width:88%;background:var(--red)"></div></div>
+                  <div class="tropo-val" style="color:var(--red)">88</div>
+                </div>
+                <div class="tropo-bar">
+                  <div class="tropo-label">Geopolítico <span style="color:var(--accent);font-family:var(--mono);font-size:9px">08-1-001</span></div>
+                  <div class="tropo-track"><div class="tropo-fill" style="width:62%;background:var(--orange)"></div></div>
+                  <div class="tropo-val" style="color:var(--orange)">62</div>
+                </div>
+                <div class="tropo-bar">
+                  <div class="tropo-label">Negacionismo <span style="color:var(--accent);font-family:var(--mono);font-size:9px">03-5-001</span></div>
+                  <div class="tropo-track"><div class="tropo-fill" style="width:35%;background:var(--yellow)"></div></div>
+                  <div class="tropo-val" style="color:var(--yellow)">35</div>
+                </div>
+                <div class="tropo-bar">
+                  <div class="tropo-label">Religioso <span style="color:var(--accent);font-family:var(--mono);font-size:9px">10-3-004</span></div>
+                  <div class="tropo-track"><div class="tropo-fill" style="width:18%;background:var(--blue)"></div></div>
+                  <div class="tropo-val" style="color:var(--blue)">18</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════ ÍNDICE TI ══════════════════════════════ -->
+    <div id="panel-clasificacion" class="panel">
+      <div class="metrics">
+        <div class="metric yellow"><div class="metric-val">21</div><div class="metric-label">Categorías principales</div></div>
+        <div class="metric blue"><div class="metric-val">~500</div><div class="metric-label">Subcódigos TI</div></div>
+        <div class="metric green"><div class="metric-val">350</div><div class="metric-label">Incidentes clasificados</div></div>
+        <div class="metric orange"><div class="metric-val">+87</div><div class="metric-label">Refs. cruzadas (cfr.)</div></div>
+      </div>
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-header"><div class="card-title">Índice de Clasificación TI</div><div class="card-sub">21 CATEGORÍAS · SISTEMA LEGADO INTEGRADO</div></div>
+          <div class="card-body">
+            <div class="ti-categories" id="ti-full-cats" style="max-height:none"></div>
+          </div>
+        </div>
+        <div>
+          <div class="card">
+            <div class="card-header"><div class="card-title">Actividad por categoría</div><div class="card-sub">ÚLTIMOS 30 DÍAS</div></div>
+            <div class="card-body">
+              <table class="mini-table">
+                <tr><th>Cat.</th><th>Nombre</th><th>Incidentes</th><th>Críticos</th></tr>
+                <tr><td style="color:var(--accent);font-family:var(--mono)">01</td><td>Antisemitismo</td><td style="color:var(--red)">142</td><td style="color:var(--red)">18</td></tr>
+                <tr><td style="color:var(--accent);font-family:var(--mono)">04</td><td>Sionismo</td><td style="color:var(--orange)">83</td><td style="color:var(--orange)">9</td></tr>
+                <tr><td style="color:var(--accent);font-family:var(--mono)">07</td><td>Israel</td><td style="color:var(--yellow)">61</td><td style="color:var(--yellow)">6</td></tr>
+                <tr><td style="color:var(--accent);font-family:var(--mono)">09</td><td>Terrorismo</td><td>38</td><td>4</td></tr>
+                <tr><td style="color:var(--accent);font-family:var(--mono)">14</td><td>México</td><td>26</td><td>3</td></tr>
+                <tr><td style="color:var(--accent);font-family:var(--mono)">03</td><td>Holocausto</td><td>19</td><td>2</td></tr>
+                <tr><td style="color:var(--accent);font-family:var(--mono)">08</td><td>Conflictos M.O.</td><td>14</td><td>1</td></tr>
+              </table>
+            </div>
+          </div>
+          <div class="card" style="margin-top:14px">
+            <div class="card-header"><div class="card-title">Referencias cruzadas activas</div><div class="card-sub">CFR. DEL ÍNDICE ORIGINAL</div></div>
+            <div class="card-body">
+              <div style="font-size:11px;color:var(--text2);line-height:2">
+                <div><span style="color:var(--accent);font-family:var(--mono)">01-1-010</span> ↔ <span style="color:var(--accent);font-family:var(--mono)">09-1-004</span> — Antisemitismo digital ↔ Terrorismo en internet</div>
+                <div><span style="color:var(--accent);font-family:var(--mono)">04-2-003</span> ↔ <span style="color:var(--accent);font-family:var(--mono)">07-6-003</span> — Antisionismo MX ↔ Condenas Israel ONU</div>
+                <div><span style="color:var(--accent);font-family:var(--mono)">01-2-000</span> ↔ <span style="color:var(--accent);font-family:var(--mono)">14-5-041</span> — Antisemitismo MX ↔ Tribuna Israelita</div>
+                <div><span style="color:var(--accent);font-family:var(--mono)">03-4-001</span> ↔ <span style="color:var(--accent);font-family:var(--mono)">03-5-001</span> — Neonazismo ↔ Revisionismo hist.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════ ACTORES / HISTÓRICO ══════════════════════════════ -->
+    <div id="panel-actores" class="panel">
+      <div class="card"><div class="card-header"><div class="card-title">Red de Actores</div><div class="card-sub">CON CLASIFICACIÓN TI POR ACTOR</div></div>
+        <div class="card-body">
+          <table class="mini-table">
+            <tr><th>Actor</th><th>Tipo</th><th>Categorías TI activas</th><th>Incidentes</th><th>Riesgo</th></tr>
+            <tr><td><b>@conspirador_mx</b><br><span style="color:var(--text3);font-size:10px">45,200 seg.</span></td><td><span class="tag source">Twitter</span></td>
+                <td><span class="tag ti-code">01-1-010</span> <span class="tag ti-code">01-2-000</span></td><td style="color:var(--red)">12</td><td><span style="color:var(--red)">●●●●</span></td></tr>
+            <tr><td><b>Canal "Verdad MX"</b><br><span style="color:var(--text3);font-size:10px">8,200 miembros</span></td><td><span class="tag source">Telegram</span></td>
+                <td><span class="tag ti-code">03-5-001</span> <span class="tag ti-code">04-2-003</span></td><td style="color:var(--orange)">7</td><td><span style="color:var(--orange)">●●●○</span></td></tr>
+            <tr><td><b>Podcast "Sin Filtro"</b><br><span style="color:var(--text3);font-size:10px">45k oyentes</span></td><td><span class="tag source">Podcast</span></td>
+                <td><span class="tag ti-code">04-2-003</span> <span class="tag ti-code">14-1-018</span></td><td style="color:var(--orange)">3</td><td><span style="color:var(--orange)">●●○○</span></td></tr>
+            <tr><td><b>Grupo "Política Real"</b><br><span style="color:var(--text3);font-size:10px">22,000 miembros</span></td><td><span class="tag source">Facebook</span></td>
+                <td><span class="tag ti-code">01-2-000</span></td><td style="color:var(--yellow)">2</td><td><span style="color:var(--yellow)">●○○○</span></td></tr>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div id="panel-historico" class="panel">
+      <div class="card"><div class="card-header"><div class="card-title">Evolución Histórica por Categoría TI</div><div class="card-sub">ÚLTIMOS 12 MESES</div></div>
+        <div class="card-body">
+          <div style="font-family:var(--mono);font-size:11px;color:var(--text2);margin-bottom:16px">
+            Pico histórico: <span style="color:var(--red)">Octubre 2023 — 89 inc./mes</span> · Conflicto Israel-Gaza · +340% sobre promedio. Categorías más activas: <span class="tag ti-code" style="display:inline-flex">01</span> <span class="tag ti-code" style="display:inline-flex">04</span> <span class="tag ti-code" style="display:inline-flex">07</span> <span class="tag ti-code" style="display:inline-flex">08</span>
+          </div>
+          <table class="mini-table">
+            <tr><th>Mes</th><th>Cat. 01 Antisem.</th><th>Cat. 04 Sionismo</th><th>Cat. 07 Israel</th><th>Cat. 08 Conflictos</th><th>Total</th></tr>
+            <tr><td style="color:var(--text3)">Mar 2026</td><td style="color:var(--red)">142</td><td>83</td><td>61</td><td>14</td><td><b>350</b></td></tr>
+            <tr><td style="color:var(--text3)">Feb 2026</td><td>118</td><td>72</td><td>54</td><td>11</td><td>295</td></tr>
+            <tr><td style="color:var(--text3)">Ene 2026</td><td>104</td><td>65</td><td>48</td><td>9</td><td>261</td></tr>
+            <tr><td style="color:var(--text3)">Dic 2025</td><td>87</td><td>51</td><td>41</td><td>7</td><td>215</td></tr>
+            <tr><td style="color:var(--text3)">Oct 2023</td><td style="color:var(--red)">312</td><td style="color:var(--red)">198</td><td style="color:var(--red)">187</td><td style="color:var(--red)">94</td><td style="color:var(--red)"><b>891</b></td></tr>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /content -->
+</div><!-- /main -->
+
+<script>
+// ═══════════════════════════════════════
+// DATOS: ÍNDICE TI COMPLETO
+// ═══════════════════════════════════════
+const TI_INDEX = [
+  { codigo: '01', nombre: 'ANTISEMITISMO', count: 142, subcats: [
+    { codigo: '01-1-000', nombre: 'Antisemitismo en General', count: 44 },
+    { codigo: '01-1-010', nombre: 'Antisemitismo y extremismo en internet', count: 98 },
+    { codigo: '01-2-000', nombre: 'Antisemitismo en México', count: 74 },
+    { codigo: '01-2-100', nombre: 'Grupos no identificados (GINI)', count: 21 },
+    { codigo: '01-2-200', nombre: 'Toda la derecha — actividades antisemitas', count: 12 },
+    { codigo: '01-2-300', nombre: 'Toda la izquierda — actividades antisemitas', count: 18 },
+  ]},
+  { codigo: '02', nombre: 'JUDAÍSMO', count: 3, subcats: [
+    { codigo: '02-1-000', nombre: 'Información general — Historia', count: 1 },
+    { codigo: '02-5-002', nombre: 'Identidad', count: 1 },
+    { codigo: '02-7-002', nombre: 'Sefaradim', count: 1 },
+  ]},
+  { codigo: '03', nombre: 'HOLOCAUSTO', count: 19, subcats: [
+    { codigo: '03-1-001', nombre: 'Historia del Holocausto', count: 6 },
+    { codigo: '03-1-002', nombre: 'Ceremonias alusivas', count: 3 },
+    { codigo: '03-4-001', nombre: 'Actividades Neonazis', count: 5 },
+    { codigo: '03-5-001', nombre: 'Argumentos Revisionistas', count: 5 },
+  ]},
+  { codigo: '04', nombre: 'SIONISMO', count: 83, subcats: [
+    { codigo: '04-1-001', nombre: 'Historia del Movimiento Sionista', count: 2 },
+    { codigo: '04-2-001', nombre: 'Antisionismo en General', count: 31 },
+    { codigo: '04-2-003', nombre: 'Antisionismo en México', count: 38 },
+    { codigo: '04-2-005', nombre: 'Antisionismo — países árabes/musulmanes', count: 12 },
+  ]},
+  { codigo: '05', nombre: 'OLP / PALESTINA', count: 8, subcats: [
+    { codigo: '05-1-021', nombre: 'Gaza', count: 6 },
+    { codigo: '05-1-022', nombre: 'Cisjordania', count: 2 },
+  ]},
+  { codigo: '06', nombre: 'JERUSALÉN', count: 4, subcats: [
+    { codigo: '06-1-006', nombre: 'Discusiones políticas en torno a Jerusalén', count: 4 },
+  ]},
+  { codigo: '07', nombre: 'ISRAEL', count: 61, subcats: [
+    { codigo: '07-1-015', nombre: 'Panorama socio-económico y político de Israel', count: 18 },
+    { codigo: '07-1-016', nombre: 'Políticas del gobierno', count: 14 },
+    { codigo: '07-3-007', nombre: 'Relaciones México – Israel', count: 12 },
+    { codigo: '07-6-003', nombre: 'Críticas/condenas contra Israel en la ONU', count: 17 },
+  ]},
+  { codigo: '08', nombre: 'CONFLICTOS MEDIO ORIENTE', count: 14, subcats: [
+    { codigo: '08-1-001', nombre: 'Conflicto árabe-israelí — información general', count: 10 },
+    { codigo: '08-1-009', nombre: 'Reacciones al Proceso de Paz', count: 4 },
+  ]},
+  { codigo: '09', nombre: 'TERRORISMO', count: 38, subcats: [
+    { codigo: '09-1-001', nombre: 'Información General', count: 8 },
+    { codigo: '09-1-004', nombre: 'Terrorismo en internet', count: 22 },
+    { codigo: '09-2-013', nombre: 'Terrorismo en A.L. — grupos árabes', count: 8 },
+  ]},
+  { codigo: '10', nombre: 'RELACIONES INTERRELIGIOSAS', count: 5, subcats: [
+    { codigo: '10-3-004', nombre: 'Relaciones Judeo-Islámicas', count: 5 },
+  ]},
+  { codigo: '11', nombre: 'ONU', count: 9, subcats: [
+    { codigo: '11-4-002', nombre: 'Resolución Asamblea General (Sionismo=Racismo)', count: 9 },
+  ]},
+  { codigo: '12', nombre: 'DERECHOS HUMANOS', count: 4, subcats: [
+    { codigo: '12-1-004', nombre: 'Racismo', count: 4 },
+  ]},
+  { codigo: '13', nombre: 'REALIDAD MESORIENTAL', count: 7, subcats: [
+    { codigo: '13-1-012', nombre: 'Movimientos fundamentalistas islámicos', count: 7 },
+  ]},
+  { codigo: '14', nombre: 'MÉXICO', count: 26, subcats: [
+    { codigo: '14-1-016', nombre: 'Opinión pública sobre Israel/M.O./M.J.', count: 6 },
+    { codigo: '14-1-018', nombre: 'Opinión de medios sobre Israel/M.O./M.J.', count: 11 },
+    { codigo: '14-5-029', nombre: 'Problema Comunidad Judía — Sociedad Mexicana', count: 5 },
+    { codigo: '14-5-041', nombre: 'Tribuna Israelita', count: 4 },
+  ]},
+  { codigo: '15', nombre: 'ESTADOS UNIDOS', count: 6, subcats: [
+    { codigo: '15-1-016', nombre: 'Opinión pública sobre Israel/M.O./M.J.', count: 6 },
+  ]},
+  { codigo: '16', nombre: 'AMÉRICA LATINA', count: 3, subcats: [
+    { codigo: '16-5-001', nombre: 'Comunidad judía en América Latina', count: 3 },
+  ]},
+  { codigo: '17', nombre: 'EUROPA', count: 2, subcats: [
+    { codigo: '17-5-001', nombre: 'Comunidad Judía en Europa', count: 2 },
+  ]},
+  { codigo: '18', nombre: 'RUSIA / EX URSS', count: 1, subcats: [
+    { codigo: '18-1-020', nombre: 'Comunidad judía en Rusia', count: 1 },
+  ]},
+  { codigo: '19', nombre: 'ÁFRICA', count: 0, subcats: [] },
+  { codigo: '20', nombre: 'ASIA', count: 1, subcats: [
+    { codigo: '20-9-002', nombre: 'China (Rep. Popular)', count: 1 },
+  ]},
+  { codigo: '21', nombre: 'POLÍTICA INTERNACIONAL', count: 3, subcats: [
+    { codigo: '21-3-000', nombre: 'Rivalidades geopolíticas globales', count: 3 },
+  ]},
+];
+
+// Selected TI codes for registration
+let selectedTICodes = [];
+
+// ═══════════════════════════════════════
+// RENDER TI TREE
+// ═══════════════════════════════════════
+function renderTITree(containerId, clickable = false) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  container.innerHTML = '';
+
+  TI_INDEX.forEach(cat => {
+    const catEl = document.createElement('div');
+    catEl.className = 'ti-cat';
+
+    const header = document.createElement('div');
+    header.className = 'ti-cat-header';
+    header.innerHTML = `
+      <span class="ti-cat-code">${cat.codigo}</span>
+      <span class="ti-cat-name">${cat.nombre}</span>
+      <span class="ti-cat-count">${cat.count > 0 ? cat.count : '—'}</span>
+      ${cat.subcats.length ? '<span class="ti-cat-arrow">▶</span>' : ''}
+    `;
+
+    const subcatsEl = document.createElement('div');
+    subcatsEl.className = 'ti-subcats';
+
+    if (cat.subcats.length) {
+      cat.subcats.forEach(sub => {
+        const subEl = document.createElement('div');
+        subEl.className = 'ti-subcat';
+        subEl.dataset.code = sub.codigo;
+        subEl.dataset.name = sub.nombre;
+        subEl.innerHTML = `
+          <span class="ti-subcat-code">${sub.codigo}</span>
+          <span class="ti-subcat-name">${sub.nombre}</span>
+          <span class="ti-subcat-cnt">${sub.count || ''}</span>
+        `;
+        if (clickable) {
+          subEl.onclick = () => toggleTICode(sub.codigo, sub.nombre, subEl);
+        }
+        subcatsEl.appendChild(subEl);
+      });
+
+      header.onclick = () => {
+        const isOpen = subcatsEl.classList.toggle('open');
+        header.classList.toggle('open', isOpen);
+      };
+    }
+
+    catEl.appendChild(header);
+    catEl.appendChild(subcatsEl);
+    container.appendChild(catEl);
+  });
+}
+
+function toggleTICode(code, name, el) {
+  const idx = selectedTICodes.findIndex(c => c.code === code);
+  if (idx >= 0) {
+    selectedTICodes.splice(idx, 1);
+    el.classList.remove('selected');
+  } else {
+    selectedTICodes.push({ code, name });
+    el.classList.add('selected');
+  }
+  renderSelectedTICodes();
+}
+
+function renderSelectedTICodes() {
+  const container = document.getElementById('reg-ti-selected');
+  if (!container) return;
+  if (selectedTICodes.length === 0) {
+    container.innerHTML = '<span style="color:var(--text3);font-size:10px;font-family:var(--mono)">Ningún código TI seleccionado. Usa el panel → para clasificar.</span>';
+  } else {
+    container.innerHTML = selectedTICodes.map(c => `
+      <div class="ti-code-chip">
+        <span class="code">${c.code}</span>
+        <span class="name">${c.name}</span>
+        <span onclick="removeTICode('${c.code}')" style="cursor:pointer;color:var(--text3);margin-left:4px">✕</span>
+      </div>
+    `).join('');
+  }
+}
+
+function removeTICode(code) {
+  selectedTICodes = selectedTICodes.filter(c => c.code !== code);
+  renderSelectedTICodes();
+  document.querySelectorAll(`[data-code="${code}"]`).forEach(el => el.classList.remove('selected'));
+}
+
+// ═══════════════════════════════════════
+// NAVIGATION
+// ═══════════════════════════════════════
+const panelTitles = {
+  tablero: 'Tablero Principal',
+  analizador: 'Analizador de Contenido — IA',
+  registro: 'Registro de Incidente',
+  predictivo: 'Centro Predictivo',
+  clasificacion: 'Índice de Clasificación TI',
+  actores: 'Red de Actores',
+  historico: 'Evolución Histórica'
+};
+
+function showPanel(id) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('panel-' + id).classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(n => {
+    if (n.getAttribute('onclick') && n.getAttribute('onclick').includes("'" + id + "'")) {
+      n.classList.add('active');
+    }
+  });
+  document.getElementById('topbar-title').textContent = panelTitles[id] || id;
+}
+
+// ═══════════════════════════════════════
+// ANALYZER
+// ═══════════════════════════════════════
+const DEMOS = {
+  crit: `Los medios de México están controlados por judíos que deciden qué noticias existen y cuáles no. Lo dijo [figura pública]. Ya es hora de que México despierte antes de que sea demasiado tarde. Comparte antes de que lo censuren.`,
+  peli: `Israel está llevando a cabo un genocidio sistemático y planificado. Los judíos que apoyan esto son cómplices. Hay que boicotear todos sus negocios y expulsarlos de nuestras universidades.`,
+  regu: `La política exterior de Netanyahu es un fracaso que ha dañado la imagen de Israel internacionalmente. Los bombardeos en Gaza generan legítima indignación global que no puede ignorarse.`
+};
+
+function setDemo(type) {
+  document.getElementById('analyze-text').value = DEMOS[type];
+}
+
+async function runAnalysis() {
+  const text = document.getElementById('analyze-text').value.trim();
+  if (!text) return;
+
+  const btn = document.getElementById('btn-analyze');
+  btn.disabled = true;
+  document.getElementById('loading-analyze').classList.add('visible');
+  document.getElementById('result-box').classList.remove('visible');
+
+  try {
+    const source = document.getElementById('analyze-source').value;
+    const alcance = document.getElementById('analyze-alcance').value;
+    const context = document.getElementById('analyze-context').value;
+
+    const systemPrompt = `Eres el sistema de análisis de Tribuna Israelita, especializado en detección de antisemitismo en contexto mexicano. Tribuna Israelita tiene un sistema de clasificación documental con 21 categorías (del 01 al 21).
+
+Categorías principales:
+01-ANTISEMITISMO, 02-JUDAÍSMO, 03-HOLOCAUSTO, 04-SIONISMO, 05-OLP/PALESTINA, 06-JERUSALÉN, 07-ISRAEL, 08-CONFLICTOS M.ORIENTE, 09-TERRORISMO, 10-REL.INTERRELIGIOSAS, 11-ONU, 12-DERECHOS HUMANOS, 13-REALIDAD MESORIENTAL, 14-MÉXICO, 15-EUA, 16-A.LATINA, 17-EUROPA, 18-RUSIA, 19-ÁFRICA, 20-ASIA, 21-POL.INTERNACIONAL
+
+Subcódigos relevantes:
+01-1-000: Antisemitismo general | 01-1-010: Antisemitismo en internet | 01-2-000: Antisemitismo en México | 04-2-003: Antisionismo en México | 03-5-001: Revisionismo histórico | 09-1-004: Terrorismo en internet | 14-1-018: Opinión medios sobre Israel | 10-3-004: Relaciones judeo-islámicas
+
+Analiza el texto y responde SOLO con este JSON válido sin ningún texto adicional:
+{
+  "score": <0-100>,
+  "nivel": "<muy_peligroso|peligroso|regular|informativo>",
+  "resumen": "<1 oración de diagnóstico>",
+  "ti_codigos": [{"codigo": "<código>", "nombre": "<nombre corto>"}],
+  "ti_nota": "<explicación breve de por qué esos códigos>",
+  "tropos": [{"nombre": "<tropo>", "valor": <0-100>}],
+  "contexto": "<análisis de contexto en 2-3 oraciones>",
+  "acciones": ["<acción recomendada 1>", "<acción 2>", "<acción 3>"]
+}`;
+
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1000,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: `Fuente: ${source} | Alcance: ${alcance} | Contexto: ${context}\n\nTexto:\n${text}` }]
+      })
+    });
+
+    const data = await response.json();
+    const raw = data.content[0].text.replace(/```json|```/g, '').trim();
+    const result = JSON.parse(raw);
+    renderResult(result);
+
+  } catch (err) {
+    // Fallback demo result
+    renderResult(getDemoResult(document.getElementById('analyze-text').value));
+  }
+
+  document.getElementById('loading-analyze').classList.remove('visible');
+  btn.disabled = false;
+}
+
+function getDemoResult(text) {
+  const isHigh = text.includes('controlan') || text.includes('judíos') || text.includes('boicotear');
+  const isMed = text.includes('genocidio') || text.includes('Israel') || text.includes('Gaza');
+  if (isHigh) return {
+    score: 87, nivel: 'muy_peligroso',
+    resumen: 'Contenido antisemita crítico: narrativa de control conspirativo con llamada a la acción.',
+    ti_codigos: [{ codigo: '01-1-010', nombre: 'Antisemitismo internet' }, { codigo: '01-2-000', nombre: 'Antisemitismo México' }],
+    ti_nota: 'Antisemitismo digital coordinado en contexto mexicano (01-1-010, 01-2-000). Posible cruce con 09-1-004 por coordinación.',
+    tropos: [{ nombre: 'Control global', valor: 95 }, { nombre: 'Conspiración', valor: 88 }, { nombre: 'Llamada a acción', valor: 82 }],
+    contexto: 'El texto emplea el tropo clásico de "control mediático judío" combinado con un llamado de urgencia ("antes de que sea demasiado tarde") y censura anticipada. Patrón de alta viralidad.',
+    acciones: ['① Reporte inmediato a plataforma — Tweet removible bajo políticas de odio', '② Comunicado de desmentido con fuentes verificadas', '③ Activar monitoreo de amplificadores conocidos']
+  };
+  if (isMed) return {
+    score: 55, nivel: 'peligroso',
+    resumen: 'Contenido con tropos de deshumanización que pueden escalar a antisemitismo.',
+    ti_codigos: [{ codigo: '04-2-003', nombre: 'Antisionismo México' }, { codigo: '07-1-015', nombre: 'Geopolítica Israel' }],
+    ti_nota: 'Antisionismo político con desbordamiento hacia retórica colectiva (04-2-003). Contexto geopolítico (07-1-015).',
+    tropos: [{ nombre: 'Deshumanización', valor: 72 }, { nombre: 'Responsabilidad colectiva', valor: 65 }, { nombre: 'Antisionismo político', valor: 58 }],
+    contexto: 'Critica legítima de políticas gubernamentales combinada con generalización colectiva ("los judíos que apoyan"). Esta extensión a responsabilidad grupal cruzaa la línea del discurso de odio.',
+    acciones: ['① Monitoreo activo — potencial de escalada', '② Documentar en expediente del canal', '③ Evaluar en 48h si el discurso escala']
+  };
+  return {
+    score: 18, nivel: 'informativo',
+    resumen: 'Crítica política legítima sin tropos antisemitas identificados.',
+    ti_codigos: [{ codigo: '14-1-018', nombre: 'Opinión medios Israel-MX' }],
+    ti_nota: 'Clasificado bajo 14-1-018 como opinión de medios sobre Israel en contexto mexicano.',
+    tropos: [{ nombre: 'Crítica política', valor: 20 }, { nombre: 'Antisionismo', valor: 12 }],
+    contexto: 'El texto expresa crítica a una política gubernamental específica sin usar tropos de odio colectivo ni conspiración. Monitoreo pasivo recomendado.',
+    acciones: ['① Monitoreo pasivo automático', '② Archivar bajo código 14-1-018', '③ Sin acción urgente requerida']
+  };
+}
+
+function renderResult(r) {
+  const box = document.getElementById('result-box');
+  const colors = { muy_peligroso: 'var(--red)', peligroso: 'var(--orange)', regular: 'var(--yellow)', informativo: 'var(--blue)' };
+  const labels = { muy_peligroso: 'MUY PELIGROSO', peligroso: 'PELIGROSO', regular: 'REGULAR', informativo: 'INFORMATIVO' };
+  const color = colors[r.nivel] || 'var(--text2)';
+
+  const circle = document.getElementById('result-circle');
+  circle.textContent = r.score;
+  circle.style.color = color;
+  circle.style.borderColor = color;
+
+  document.getElementById('result-level').textContent = labels[r.nivel] || r.nivel.toUpperCase();
+  document.getElementById('result-level').style.color = color;
+  document.getElementById('result-desc').textContent = r.resumen;
+
+  // TI codes
+  document.getElementById('ti-result-codes').innerHTML = (r.ti_codigos || []).map(c =>
+    `<div class="ti-code-chip"><span class="code">${c.codigo}</span><span class="name">${c.nombre}</span></div>`
+  ).join('');
+  document.getElementById('ti-result-nota').textContent = r.ti_nota || '';
+
+  // Tropos
+  document.getElementById('result-tropos').innerHTML = (r.tropos || []).map(t => `
+    <div class="tropo-bar">
+      <div class="tropo-label">${t.nombre}</div>
+      <div class="tropo-track"><div class="tropo-fill" style="width:${t.valor}%;background:${color}"></div></div>
+      <div class="tropo-val">${t.valor}</div>
+    </div>
+  `).join('');
+
+  document.getElementById('result-context').innerHTML = r.contexto || '';
+  document.getElementById('result-actions').innerHTML = (r.acciones || []).map(a => `<div>${a}</div>`).join('');
+
+  box.classList.add('visible');
+}
+
+function registerFromAnalysis() {
+  showPanel('registro');
+  // Pre-fill from analysis
+  const resultLevel = document.getElementById('result-level').textContent;
+  if (resultLevel.includes('MUY')) document.getElementById('reg-severidad').value = 'Muy peligroso';
+  else if (resultLevel.includes('PELIGROSO')) document.getElementById('reg-severidad').value = 'Peligroso';
+  else if (resultLevel.includes('REGULAR')) document.getElementById('reg-severidad').value = 'Regular';
+  else document.getElementById('reg-severidad').value = 'Informativo';
+}
+
+// ═══════════════════════════════════════
+// REGISTRO DE INCIDENTE
+// ═══════════════════════════════════════
+function saveIncident() {
+  const titulo = document.getElementById('reg-titulo').value.trim();
+  const desc = document.getElementById('reg-desc').value.trim();
+  if (!titulo || !desc) { alert('Título y descripción son obligatorios.'); return; }
+
+  const folio = 'TI-2026-' + String(Math.floor(Math.random() * 90000) + 10000);
+  const tiCodes = selectedTICodes.map(c => c.code).join(', ') || 'Sin clasificar';
+  const suc = document.getElementById('reg-success');
+  suc.style.display = 'block';
+  suc.innerHTML = `✦ Incidente registrado · Folio: <b>${folio}</b><br>Clasificación TI: <b>${tiCodes}</b><br>Severidad: <b>${document.getElementById('reg-severidad').value}</b>`;
+  setTimeout(() => { suc.style.display = 'none'; clearForm(); }, 5000);
+}
+
+function clearForm() {
+  ['reg-titulo','reg-desc','reg-url','reg-tags'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  selectedTICodes = [];
+  renderSelectedTICodes();
+  document.querySelectorAll('.ti-subcat.selected').forEach(el => el.classList.remove('selected'));
+}
+
+// ═══════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════
+document.addEventListener('DOMContentLoaded', () => {
+  renderTITree('ti-sidebar-cats', true);
+  renderTITree('ti-register-cats', true);
+  renderTITree('ti-full-cats', false);
+});
+</script>
+</body>
+</html>
